@@ -1,0 +1,27 @@
+name: Nawah AI Execution
+
+on:
+  push:
+    branches: [ main ] # يعمل تلقائياً عند رفع كود جديد
+  workflow_dispatch: # يتيح لك تشغيله يدوياً بضغطة زر
+
+jobs:
+  run-ai:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Dependencies
+        run: npm install @google/generative-ai
+
+      - name: Run Nawah Intelligence Test
+        env:
+          # هنا نقوم بربط السر الذي وضعته في الإعدادات بالكود
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: node ai_test.js
