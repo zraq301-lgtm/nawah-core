@@ -1,40 +1,44 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
-
-const API_KEY = process.env.GEMINI_API_KEY;
-
-if (!API_KEY) {
-  console.error("❌ خطأ: لم يتم العثور على مفتاح GEMINI_API_KEY.");
-  process.exit(1);
-}
-
-// تعديل بسيط لضمان الاتصال الصحيح
-const genAI = new GoogleGenerativeAI(API_KEY);
-
-async function runTest() {
-  console.log("🚀 تشغيل محرك الذكاء الاصطناعي...");
+async function runNawahAI() {
+  const API_KEY = process.env.GEMINI_API_KEY;
   
+  if (!API_KEY) {
+    console.error("❌ خطأ: لم يتم العثور على المفتاح السري.");
+    return;
+  }
+
+  // استخدام الرابط المباشر للـ API (v1) بدلاً من v1beta
+  const url = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${API_KEY}`;
+
+  console.log("🚀 جاري الاتصال المباشر بمركز ذكاء نواة...");
+
   try {
-    // جرب تغيير الموديل لنسخة مستقرة أو أحدث 
-    // ملاحظة: أحياناً يتطلب الأمر 'gemini-pro' كبديل إذا كان flash في صيانة
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-    
-    // إرسال طلب بسيط جداً للتأكد من الاتصال
-    const result = await model.generateContent("Hello, are you active?");
-    const response = await result.response;
-    const text = response.text();
-    
-    console.log("✅ استجابة النظام:");
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{
+          parts: [{ text: "Hello, you are Nawah AI-OS. Give me a 1-sentence tip for a modern factory." }]
+        }]
+      })
+    });
+
+    const data = await response.json();
+
+    if (data.error) {
+      throw new Error(data.error.message);
+    }
+
+    const aiResponse = data.candidates[0].content.parts[0].text;
+
+    console.log("✅ تم الاتصال بنجاح!");
     console.log("------------------------------");
-    console.log(text);
+    console.log("نصيحة الذكاء الاصطناعي:", aiResponse);
     console.log("------------------------------");
 
   } catch (error) {
-    console.error("🛑 خطأ في جلب البيانات:");
-    console.log(error.message);
-    
-    // حل بديل فوري إذا استمر الخطأ: استخدام الرابط المباشر (curl-style) داخل الكود
-    console.log("تلميح: تأكد من تحديث مكتبة @google/generative-ai لأحدث إصدار.");
+    console.error("🛑 فشل الاتصال المباشر:");
+    console.error(error.message);
   }
 }
 
-runTest();
+runNawahAI();
