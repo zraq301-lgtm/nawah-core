@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nawah AI Studio - تجربة مباشرة</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-900 text-white min-h-screen flex items-center justify-center p-4">
+
+    <div class="bg-gray-800 p-8 rounded-2xl shadow-2xl w-full max-w-lg border border-gray-700">
+        <h1 class="text-2xl font-bold mb-6 text-center text-purple-400">Nawah AI Explorer 🚀</h1>
+        
+        <div class="space-y-4">
+            <div>
+                <label class="block text-sm font-medium mb-1 text-gray-400">مفتاح الـ API</label>
+                <input type="password" id="apiKey" placeholder="AIzaSy..." 
+                    class="w-full p-3 rounded-lg bg-gray-700 border border-gray-600 focus:border-purple-500 focus:outline-none transition-all">
+            </div>
+
+            <div>
+                <label class="block text-sm font-medium mb-1 text-gray-400">سؤالك للذكاء الاصطناعي</label>
+                <textarea id="userPrompt" rows="3" 
+                    class="w-full p-3 rounded-lg bg-gray-700 border border-gray-600 focus:border-purple-500 focus:outline-none transition-all">اقترح فكرة ذكية لنظام إدارة مصنع معمول</textarea>
+            </div>
+
+            <button onclick="askGemini()" id="btn"
+                class="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 rounded-lg transition-all transform active:scale-95">
+                تحليل البيانات الآن
+            </button>
+
+            <div id="response" class="mt-6 p-4 bg-gray-900 rounded-lg border border-gray-700 min-h-[100px] text-gray-300 text-sm leading-relaxed hidden">
+                </div>
+        </div>
+    </div>
+
+    <script type="module">
+        // هذا هو الرابط الأفضل لاستيراد المكتبة مباشرة
+        import { GoogleGenerativeAI } from "https://esm.run/@google/generative-ai";
+
+        window.askGemini = async () => {
+            const key = document.getElementById('apiKey').value;
+            const prompt = document.getElementById('userPrompt').value;
+            const resDiv = document.getElementById('response');
+            const btn = document.getElementById('btn');
+
+            if (!key) return alert("برجاء إدخال مفتاح الـ API الخاص بك");
+
+            // تحضير الواجهة
+            resDiv.classList.remove('hidden');
+            resDiv.innerHTML = "جاري التفكير...";
+            btn.disabled = true;
+            btn.innerText = "جاري الاتصال...";
+
+            try {
+                const genAI = new GoogleGenerativeAI(key);
+                const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+
+                const result = await model.generateContent(prompt);
+                const text = result.response.text();
+
+                resDiv.innerText = text;
+            } catch (error) {
+                resDiv.innerHTML = `<span class="text-red-400">خطأ: ${error.message}</span>`;
+            } finally {
+                btn.disabled = false;
+                btn.innerText = "تحليل البيانات الآن";
+            }
+        };
+    </script>
+</body>
+</html>
