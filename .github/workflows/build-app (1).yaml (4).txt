@@ -1,0 +1,90 @@
+name: "Mamoul Final Recovery Build"
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: 1. Checkout Code
+        uses: actions/checkout@v4
+
+      - name: 2. Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: 3. Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          # تم حذف سطر الكاش نهائياً لمنع الخطأ الحالي
+          
+      - name: 4. Build Web Project
+        run: |
+          npm install --legacy-peer-deps
+          npm run build
+          # ضمان وجود المجلد المطلوب
+          mkdir -p www
+          cp -r dist/* www/ || echo "Using existing files"
+
+      - name: 5. Force Create Android Project
+        run: |
+          # تنظيف وحذف أي بقايا قديمة
+          rm -rf android
+          # إضافة المنصة وبناء المجلد من الصفر
+          npx cap add android
+          npx cap sync android
+
+      - name: 6. Inject Identity & Firebase
+        run: |
+          mkdir -p android/app/
+          cat <<EOF > android/app/google-services.json
+          {
+            "project_info": { "project_number": "162488255991", "project_id": "mamoul-app" },
+            "client": [ { "client_info": { "mobilesdk_app_id": "1:162488255991:android:73d6299f11a1b7aec61af2", "android_client_info": { "package_name": "com.mamoul.app" } }, "api_key": [ { "current_key": "AIzaSyAKjsgnoHnGGr3urhm6Kpu7RvxN2dp6sJQ" } ], "services": { "appinvite_service": { "other_platform_oauth_client": [] } } } ],
+            "configuration_version": "1"
+          }
+          EOF
+          
+          # ضبط المعرفات بدقة
+          sed -i 's/namespace ".*"/namespace "com.mamoul.app"/' android/app/build.gradle
+          sed -i 's/applicationId ".*"/applicationId "com.mamoul.app"/' android/app/build.gradle
+          
+          STRINGS="android/app/src/main/res/values/strings.xml"
+          if [ -f "$STRINGS" ]; then
+            sed -i 's/<string name="app_name">.*<\/string>/<string name="app_name">معمول<\/string>/' $STRINGS
+          fi
+
+      - name: 7. Native Android Compilation
+        working-directory: ./android
+        run: |
+          chmod +x gradlew
+          # إصلاح تعارض مكتبة bcprov
+          echo "configurations.all { resolutionStrategy.eachDependency { details -> if (details.requested.name == 'bcprov-jdk18on') { details.useVersion '1.78.1' } } }" >> build.gradle
+          # البناء مع رفع كفاءة الذاكرة لتجنب الانهيار الصامت
+          ./gradlew assembleRelease --no-daemon -Dorg.gradle.jvmargs="-Xmx2048m"
+
+      - name: 8. Sign APK
+        run: |
+          keytool -genkey -v -keystore mamoul.jks -alias mamoul_alias -keyalg RSA -keysize 2048 -validity 10000 -storepass "mamoul_pass_2026" -keypass "mamoul_pass_2026" -dname "CN=MamoulApp, O=Mamoul, C=EG" -noprompt
+          APK_PATH=$(find android/app/build/outputs/apk/release/ -name "*.apk" | head -n 1)
+          BUILD_TOOLS_VERSION=$(ls $ANDROID_HOME/build-tools | tail -n 1)
+          $ANDROID_HOME/build-tools/$BUILD_TOOLS_VERSION/apksigner sign --ks mamoul.jks --ks-pass pass:"mamoul_pass_2026" --out Mamoul-Final.apk "$APK_PATH"
+
+      - name: 9. Release to GitHub
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.5.${{ github.run_number }}
+          name: "Mamoul Stable Build v1.5.${{ github.run_number }}"
+          files: Mamoul-Final.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
