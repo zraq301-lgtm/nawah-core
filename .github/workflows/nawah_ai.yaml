@@ -2,8 +2,8 @@ name: Nawah AI Execution
 
 on:
   push:
-    branches: [ main ] # يعمل تلقائياً عند رفع كود جديد
-  workflow_dispatch: # يتيح لك تشغيله يدوياً بضغطة زر
+    branches: [ main ]
+  workflow_dispatch:
 
 jobs:
   run-ai:
@@ -18,10 +18,10 @@ jobs:
           node-version: '20'
 
       - name: Install Dependencies
-        run: npm install @google/generative-ai
+        # أضفنا --legacy-peer-deps لحل صراع النسخ بين React 19 و Next 15
+        run: npm install @google/generative-ai --legacy-peer-deps
 
       - name: Run Nawah Intelligence Test
         env:
-          # هنا نقوم بربط السر الذي وضعته في الإعدادات بالكود
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: node ai_test.js
+        run: node api/ai_test.js
