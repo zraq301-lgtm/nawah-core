@@ -2,9 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { BrowserRouter as Router } from 'react-router-dom';
 import { Capacitor } from '@capacitor/core';
 import { PushNotifications } from '@capacitor/push-notifications';
-import { AdMob } from '@capacitor-community/admob';
 
-// استيراد المكونات التي أنشأناها
+// تم حذف استيراد AdMob لضمان استقرار التطبيق
 import { NavigationContainer } from './components/Navigation';
 import Sidebar from './components/shared/Sidebar';
 import TopBar from './components/shared/TopBar';
@@ -17,22 +16,24 @@ const App = () => {
 
   useEffect(() => {
     const initializePlatform = async () => {
-      // تهيئة خدمات الموبايل (AdMob & Notifications)
       try {
         if (Capacitor.isNativePlatform()) {
-          await AdMob.initialize();
-          setupNotifications();
+          // تهيئة الإشعارات فقط
+          await setupNotifications().catch(err => console.warn("Push init skipped:", err));
         }
       } catch (e) {
-        console.warn("Mobile services init skipped or failed:", e);
+        console.warn("Platform services init failed:", e);
+      } finally {
+        setIsInitializing(false);
       }
-      setIsInitializing(false);
     };
 
     initializePlatform();
   }, []);
 
   const setupNotifications = async () => {
+    if (Capacitor.getPlatform() === 'web') return;
+    
     let perm = await PushNotifications.checkPermissions();
     if (perm.receive === 'prompt') {
       perm = await PushNotifications.requestPermissions();
@@ -44,10 +45,10 @@ const App = () => {
 
   if (isInitializing) {
     return (
-      <div className="flex h-screen w-screen items-center justify-center bg-pink-50">
+      <div className="flex h-screen w-screen items-center justify-center bg-pink-50" dir="rtl">
         <div className="flex flex-col items-center gap-4">
           <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-pink-400"></div>
-          <div className="animate-pulse text-pink-400 font-bold text-xl tracking-widest">NAWAH AI-OS</div>
+          <div className="animate-pulse text-pink-400 font-bold text-xl tracking-widest">نواة AI-OS</div>
         </div>
       </div>
     );
@@ -55,13 +56,13 @@ const App = () => {
 
   return (
     <Router>
-      <div className="min-h-screen bg-gradient-to-br from-pink-50 via-blue-50 to-purple-50 p-3 md:p-6 flex items-center justify-center">
+      <div className="min-h-screen bg-gradient-to-br from-pink-50 via-blue-50 to-purple-50 p-3 md:p-6 flex items-center justify-center text-right" dir="rtl">
         
         {/* الحاوية الرئيسية للهيكل التنظيمي */}
         <div className={`flex w-full max-w-7xl h-[90vh] overflow-hidden ${glassStyle}`}>
           
           {/* 1. الشريط الجانبي (Sidebar) */}
-          <aside className="w-64 hidden lg:block border-r border-white/20 p-6">
+          <aside className="w-64 hidden lg:block border-l border-white/20 p-6 bg-white/10">
             <Sidebar />
           </aside>
 
@@ -70,11 +71,11 @@ const App = () => {
             
             {/* الشريط العلوي (TopBar) */}
             <header className="p-4 border-b border-white/10">
-              <TopBar title="Nawah AI-OS Dashboard" />
+              <TopBar title="لوحة التحكم الذكية" />
             </header>
 
             {/* محرك الصفحات (Navigation) */}
-            <main className="flex-1 overflow-y-auto p-6 custom-scrollbar">
+            <main className="flex-1 overflow-y-auto p-4 md:p-6 custom-scrollbar">
               <NavigationContainer />
             </main>
             
