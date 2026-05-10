@@ -1,0 +1,14 @@
+{
+  "clientName": "مصنع الرواد",
+  "logo": "/assets/custom-logo.png",
+  "theme": {
+    "primary": "pink",
+    "secondary": "purple",
+    "glassOpacity": "0.3"
+  },
+  "modules": {
+    "inventory": true,
+    "waste_analysis": true,
+    "ai_mentor": false
+  }
+}
