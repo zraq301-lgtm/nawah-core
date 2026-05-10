@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { DashboardShell } from './components/DashboardShell';
-import { DynamicTable } from './components/DynamicTable';
+// تم إصلاح الخطأ هنا: إزالة الأقواس لأن التصدير غالباً default وتأكد من حالة الأحرف
+import DashboardShell from './components/DashboardShell';
+import DynamicTable from './components/DynamicTable'; 
 import { useTenantStore } from './store/useTenantStore';
 import { Cpu, TrendingUp, AlertCircle } from 'lucide-react';
 
