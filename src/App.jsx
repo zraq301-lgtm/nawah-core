@@ -1,31 +1,31 @@
 import React, { useEffect, useState } from 'react';
+import { BrowserRouter as Router } from 'react-router-dom';
 import { Capacitor } from '@capacitor/core';
 import { PushNotifications } from '@capacitor/push-notifications';
 import { AdMob } from '@capacitor-community/admob';
-import { NavigationContainer } from './components/Navigation'; // افترضنا وجوده
+
+// استيراد المكونات التي أنشأناها
+import { NavigationContainer } from './components/Navigation';
 import Sidebar from './components/shared/Sidebar';
 import TopBar from './components/shared/TopBar';
-
-// استيراد الثيم الخاص بـ Nawah (Glassmorphism)
-const glassStyle = "bg-white bg-opacity-20 backdrop-blur-lg border border-white border-opacity-30 rounded-2xl shadow-xl";
 
 const App = () => {
   const [isInitializing, setIsInitializing] = useState(true);
 
+  // نمط الزجاج (Glassmorphism) الموحد للنظام
+  const glassStyle = "bg-white/20 backdrop-blur-lg border border-white/30 rounded-3xl shadow-xl";
+
   useEffect(() => {
     const initializePlatform = async () => {
-      // 1. تهيئة AdMob للربحية
+      // تهيئة خدمات الموبايل (AdMob & Notifications)
       try {
-        await AdMob.initialize();
+        if (Capacitor.isNativePlatform()) {
+          await AdMob.initialize();
+          setupNotifications();
+        }
       } catch (e) {
-        console.error("AdMob Init Error:", e);
+        console.warn("Mobile services init skipped or failed:", e);
       }
-
-      // 2. إعداد التنبيهات (Push Notifications)
-      if (Capacitor.getPlatform() !== 'web') {
-        setupNotifications();
-      }
-
       setIsInitializing(false);
     };
 
@@ -45,60 +45,43 @@ const App = () => {
   if (isInitializing) {
     return (
       <div className="flex h-screen w-screen items-center justify-center bg-pink-50">
-        <div className="animate-pulse text-pink-400 font-bold text-xl">Nawah AI-OS Loading...</div>
+        <div className="flex flex-col items-center gap-4">
+          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-pink-400"></div>
+          <div className="animate-pulse text-pink-400 font-bold text-xl tracking-widest">NAWAH AI-OS</div>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-pink-50 via-blue-50 to-purple-50 p-4 md:p-6">
-      {/* Container الرئيسي بنمط Glassmorphism */}
-      <div className={`flex h-[92vh] overflow-hidden ${glassStyle}`}>
+    <Router>
+      <div className="min-h-screen bg-gradient-to-br from-pink-50 via-blue-50 to-purple-50 p-3 md:p-6 flex items-center justify-center">
         
-        {/* الشريط الجانبي - Sidebar */}
-        <aside className="w-64 hidden md:block border-r border-white border-opacity-20 p-4">
-          <Sidebar />
-        </aside>
+        {/* الحاوية الرئيسية للهيكل التنظيمي */}
+        <div className={`flex w-full max-w-7xl h-[90vh] overflow-hidden ${glassStyle}`}>
+          
+          {/* 1. الشريط الجانبي (Sidebar) */}
+          <aside className="w-64 hidden lg:block border-r border-white/20 p-6">
+            <Sidebar />
+          </aside>
 
-        {/* محتوى التطبيق الرئيسي */}
-        <main className="flex-1 flex flex-col relative overflow-y-auto">
-          <header className="p-4">
-            <TopBar title="Nawah AI-OS Dashboard" />
-          </header>
+          {/* 2. منطقة المحتوى (Main Content Area) */}
+          <div className="flex-1 flex flex-col overflow-hidden">
+            
+            {/* الشريط العلوي (TopBar) */}
+            <header className="p-4 border-b border-white/10">
+              <TopBar title="Nawah AI-OS Dashboard" />
+            </header>
 
-          <section className="p-6">
-            {/* هنا يتم استدعاء الراوتر أو المكونات الأساسية بناءً على الخطة */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              
-              {/* بطاقة تحليل المخزون الذكي (AI Module) */}
-              <div className={`p-6 ${glassStyle} hover:scale-105 transition-transform cursor-pointer`}>
-                <h3 className="text-gray-700 font-bold mb-2">📦 المخزون التنبؤي</h3>
-                <p className="text-sm text-gray-500">تحليل النواقص باستخدام AI قبل حدوثها.</p>
-                <button className="mt-4 text-xs bg-blue-400 text-white px-3 py-1 rounded-full">تحليل الآن</button>
-              </div>
-
-              {/* بطاقة تدريب المطورين (Apprenticeship Hub) */}
-              <div className={`p-6 ${glassStyle} hover:scale-105 transition-transform cursor-pointer`}>
-                <h3 className="text-gray-700 font-bold mb-2">🎓 مركز التلمذة</h3>
-                <p className="text-sm text-gray-500">مراجعة الكود برمجياً وتوجيهات معمارية.</p>
-                <div className="mt-4 flex -space-x-2">
-                   <div className="w-8 h-8 rounded-full bg-pink-200 border-2 border-white"></div>
-                   <div className="w-8 h-8 rounded-full bg-blue-200 border-2 border-white"></div>
-                </div>
-              </div>
-
-              {/* بطاقة الأرباح (Monetization) */}
-              <div className={`p-6 ${glassStyle} hover:scale-105 transition-transform cursor-pointer`}>
-                <h3 className="text-gray-700 font-bold mb-2">💰 الأرباح والنمو</h3>
-                <p className="text-sm text-gray-500">متابعة CPC و CPM من AdMob/Adsterra.</p>
-                <div className="mt-2 text-2xl font-bold text-green-500">$0.00</div>
-              </div>
-
-            </div>
-          </section>
-        </main>
+            {/* محرك الصفحات (Navigation) */}
+            <main className="flex-1 overflow-y-auto p-6 custom-scrollbar">
+              <NavigationContainer />
+            </main>
+            
+          </div>
+        </div>
       </div>
-    </div>
+    </Router>
   );
 };
 
