@@ -1,15 +1,17 @@
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
-import DashboardHome from '../features/DashboardHome'; // سننشئه بالأسفل
+import { Routes, Route } from 'react-router-dom';
+import DashboardHome from '../features/DashboardHome';
+import InventoryPage from '../features/inventory/InventoryPage'; // إذا كنت قد أنشأته
+import WasteAnalysis from '../features/waste-calc/WasteAnalysis'; // إذا كنت قد أنشأته
 
-export const NavigationContainer = ({ children }) => {
+export const NavigationContainer = () => {
   return (
-    <Router>
-      {children}
-      <Routes>
-        <Route path="/" element={<DashboardHome />} />
-        {/* يمكنك إضافة مسارات أخرى هنا مثل /inventory أو /ai-hub */}
-      </Routes>
-    </Router>
+    <Routes>
+      <Route path="/" element={<DashboardHome />} />
+      
+      {/* أضف المسارات الجديدة هنا كما في الخطة */}
+      <Route path="/inventory" element={<InventoryPage />} />
+      <Route path="/waste" element={<WasteAnalysis />} />
+    </Routes>
   );
 };
