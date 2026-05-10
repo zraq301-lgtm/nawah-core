@@ -1,38 +1,91 @@
 import React from 'react';
-import { LayoutDashboard, Package, Activity, Settings, Cpu } from 'lucide-react';
+import { LayoutDashboard, Package, Activity, Settings, Cpu, ChevronRight } from 'lucide-react';
 
-export const DashboardShell = ({ children, tenantName }) => {
+/**
+ * Nawah AI-OS Dashboard Shell
+ * تم تعديل التصدير ليكون Default Export لضمان التوافق مع Vite في بيئة Linux
+ */
+const DashboardShell = ({ children, tenantName = "Standard" }) => {
+  const menuItems = [
+    { icon: LayoutDashboard, label: 'Overview', active: true },
+    { icon: Package, label: 'Inventory', active: false },
+    { icon: Activity, label: 'AI Analytics', active: false },
+    { icon: Settings, label: 'Configuration', active: false },
+  ];
+
   return (
-    <div className="flex h-screen bg-[#020617] text-slate-200 font-sans">
-      {/* Sidebar */}
-      <div className="w-64 border-r border-slate-800 p-6 flex flex-col bg-[#020617]">
-        <div className="mb-10">
-          <div className="flex items-center gap-2 mb-1">
-             <Cpu className="text-indigo-500" size={24} />
-             <h1 className="text-xl font-bold tracking-tight text-white">NAWAH AI-OS</h1>
+    <div className="flex h-screen bg-[#020617] text-slate-200 font-sans antialiased overflow-hidden">
+      
+      {/* Sidebar - Glassmorphism Design */}
+      <aside className="w-72 border-r border-slate-800/50 flex flex-col bg-[#020617]/80 backdrop-blur-xl">
+        
+        {/* Brand Identity */}
+        <div className="p-8">
+          <div className="flex items-center gap-3 mb-3">
+            <div className="p-2 bg-indigo-500/10 rounded-lg border border-indigo-500/20">
+              <Cpu className="text-indigo-400" size={24} />
+            </div>
+            <h1 className="text-xl font-black tracking-tighter text-white">NAWAH <span className="text-indigo-500">AI-OS</span></h1>
           </div>
+          
           <div className="flex items-center gap-2 px-1">
-            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
-            <p className="text-[10px] text-slate-500 uppercase tracking-widest font-bold">Client: {tenantName}</p>
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+            </span>
+            <p className="text-[10px] text-slate-500 uppercase tracking-[0.2em] font-bold">
+              NODE: <span className="text-slate-300">{tenantName}</span>
+            </p>
           </div>
         </div>
         
-        <nav className="space-y-2 flex-1">
-          <div className="flex items-center gap-3 p-3 rounded-xl bg-indigo-600/10 text-indigo-400 border border-indigo-500/20">
-            <LayoutDashboard size={20} />
-            <span className="text-sm font-semibold">Overview</span>
-          </div>
-          <div className="flex items-center gap-3 p-3 rounded-xl text-slate-400 hover:bg-slate-800/50 transition-all cursor-pointer">
-            <Package size={20} />
-            <span className="text-sm font-semibold">Inventory</span>
-          </div>
+        {/* Navigation */}
+        <nav className="flex-1 px-4 space-y-1">
+          {menuItems.map((item, index) => (
+            <div 
+              key={index}
+              className={`
+                group flex items-center justify-between p-3.5 rounded-xl transition-all duration-300 cursor-pointer
+                ${item.active 
+                  ? 'bg-indigo-600/10 text-indigo-400 border border-indigo-500/20 shadow-[0_0_20px_rgba(79,70,229,0.1)]' 
+                  : 'text-slate-500 hover:bg-slate-800/40 hover:text-slate-300'}
+              `}
+            >
+              <div className="flex items-center gap-3">
+                <item.icon size={20} className={item.active ? 'text-indigo-400' : 'text-slate-500 group-hover:text-slate-300'} />
+                <span className="text-sm font-bold tracking-tight">{item.label}</span>
+              </div>
+              {item.active && <ChevronRight size={14} className="text-indigo-400" />}
+            </div>
+          ))}
         </nav>
-      </div>
 
-      {/* Content Area */}
-      <main className="flex-1 overflow-auto bg-[#020617] p-8">
-        <div className="max-w-7xl mx-auto">{children}</div>
+        {/* User Profile / Footer Sidebar */}
+        <div className="p-4 border-t border-slate-800/50">
+          <div className="flex items-center gap-3 p-3 rounded-2xl bg-slate-900/50 border border-slate-800">
+            <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-indigo-600 to-purple-600 flex items-center justify-center text-[10px] font-bold">
+              AD
+            </div>
+            <div className="flex-1 overflow-hidden">
+              <p className="text-xs font-bold text-white truncate">Admin OS</p>
+              <p className="text-[10px] text-slate-500 truncate">v2.0.0-stable</p>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      {/* Main Content Area */}
+      <main className="flex-1 relative overflow-auto bg-[#020617]">
+        {/* خلفية جمالية خفيفة (Ambient Light) */}
+        <div className="absolute top-0 left-1/4 w-96 h-96 bg-indigo-600/5 rounded-full blur-[120px] pointer-events-none"></div>
+        
+        <div className="relative z-10 max-w-7xl mx-auto p-8">
+          {children}
+        </div>
       </main>
     </div>
   );
 };
+
+// ضروري جداً: التصدير الافتراضي لحل مشكلة Resolve في GitHub Actions
+export default DashboardShell;
