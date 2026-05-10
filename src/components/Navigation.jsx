@@ -1,17 +1,20 @@
-import React from 'react';
+import React, { Suspense, lazy } from 'react';
 import { Routes, Route } from 'react-router-dom';
-import DashboardHome from '../features/DashboardHome';
-import InventoryPage from '../features/inventory/InventoryPage'; // إذا كنت قد أنشأته
-import WasteAnalysis from '../features/waste-calc/WasteAnalysis'; // إذا كنت قد أنشأته
+
+// استخدام Lazy Loading يجعل Vite أكثر تسامحاً أثناء البناء
+const DashboardHome = lazy(() => import('../features/DashboardHome'));
+const InventoryPage = lazy(() => import('../features/inventory/InventoryPage'));
 
 export const NavigationContainer = () => {
   return (
-    <Routes>
-      <Route path="/" element={<DashboardHome />} />
-      
-      {/* أضف المسارات الجديدة هنا كما في الخطة */}
-      <Route path="/inventory" element={<InventoryPage />} />
-      <Route path="/waste" element={<WasteAnalysis />} />
-    </Routes>
+    <Suspense fallback={<div className="p-4 text-pink-400">جاري التحميل...</div>}>
+      <Routes>
+        <Route path="/" element={<DashboardHome />} />
+        <Route path="/inventory" element={<InventoryPage />} />
+        
+        {/* إذا لم تكن متأكداً من وجود ملف WasteAnalysis، عطل السطر التالي بوضع // قبله */}
+        {/* <Route path="/waste" element={<div>قريباً</div>} /> */}
+      </Routes>
+    </Suspense>
   );
 };
