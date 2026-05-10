@@ -1,14 +1,8 @@
 {
-  "clientName": "مصنع الرواد",
-  "logo": "/assets/custom-logo.png",
-  "theme": {
-    "primary": "pink",
-    "secondary": "purple",
-    "glassOpacity": "0.3"
-  },
+  "clientName": "مصنع نماء",
   "modules": {
     "inventory": true,
     "waste_analysis": true,
-    "ai_mentor": false
+    "ai_mentor": true
   }
 }
