@@ -6,57 +6,46 @@ on:
       - main
   workflow_dispatch:
 
-# تأمين الصلاحيات للسماح برفع الملفات وإنشاء الـ Release
 permissions:
   contents: write
-  packages: write
 
 jobs:
   build:
-    name: Build, Sign & Deploy Android
+    name: Build & Release Nawah AI-OS
     runs-on: ubuntu-latest
 
     steps:
-      - name: 1. Checkout Source Code
+      - name: 1. Checkout Code
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - name: 2. Initialize Node.js Environment
+      - name: 2. Setup Node.js (v22)
         uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: 'npm'
+          # تم إزالة سطر cache: 'npm' لحل مشكلة الـ lock file المفقود
 
-      - name: 3. Initialize Java & Android Environment
+      - name: 3. Setup Java 17
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
-          cache: 'gradle'
 
-      - name: 4. Production Web Build (Vite/React)
+      - name: 4. Production Web Build
         run: |
-          npm install --legacy-peer-deps --force
+          # استخدام install بدون الاعتماد على lock file
+          npm install --legacy-peer-deps --no-package-lock
           npm run build
-          # إنشاء مجلد www والتأكد من نقل ملفات الـ Dist إليه بدقة
           mkdir -p www
-          if [ -d "dist" ]; then
-            cp -r dist/* www/
-          elif [ -d "build" ]; then
-            cp -r build/* www/
-          fi
+          [ -d "dist" ] && cp -r dist/* www/ || cp -r build/* www/
 
-      - name: 5. Capacitor Platform Reconstruction
+      - name: 5. Android Environment Sync
         run: |
-          # حذف أي آثار قديمة لضمان بناء نظيف تماماً
           rm -rf android
           npx cap add android
           npx cap sync android
 
       - name: 6. Nawah Identity & Firebase Injection
         run: |
-          # 6.1 حقن ملف Google Services
           mkdir -p android/app/
           cat <<EOF > android/app/google-services.json
           {
@@ -65,60 +54,33 @@ jobs:
             "configuration_version": "1"
           }
           EOF
-
-          # 6.2 تعديل معرفات التطبيق برمجياً (Namespace & ID)
-          GRADLE_PATH="android/app/build.gradle"
-          sed -i 's/namespace .*/namespace "com.nawah.aios"/' $GRADLE_PATH
-          sed -i 's/applicationId .*/applicationId "com.nawah.aios"/' $GRADLE_PATH
           
-          # 6.3 تحديث اسم التطبيق في الموارد
-          STRINGS_PATH="android/app/src/main/res/values/strings.xml"
-          if [ -f "$STRINGS_PATH" ]; then
-            sed -i 's/<string name="app_name">.*<\/string>/<string name="app_name">Nawah AI-OS<\/string>/' $STRINGS_PATH
-          fi
+          GRADLE="android/app/build.gradle"
+          sed -i 's/namespace .*/namespace "com.nawah.aios"/' $GRADLE
+          sed -i 's/applicationId .*/applicationId "com.nawah.aios"/' $GRADLE
+          
+          STRINGS="android/app/src/main/res/values/strings.xml"
+          [ -f "$STRINGS" ] && sed -i 's/<string name="app_name">.*<\/string>/<string name="app_name">Nawah AI-OS<\/string>/' $STRINGS
 
-      - name: 7. Native Compilation (Gradle)
+      - name: 7. Gradle Compilation
         working-directory: ./android
         run: |
           chmod +x gradlew
-          # معالجة تعارضات المكتبات المشهورة وزيادة كفاءة الذاكرة
           echo "configurations.all { resolutionStrategy.eachDependency { details -> if (details.requested.name == 'bcprov-jdk18on') { details.useVersion '1.78.1' } } }" >> build.gradle
           ./gradlew assembleRelease --no-daemon -Dorg.gradle.jvmargs="-Xmx3072m"
 
-      - name: 8. Professional APK Signing
-        id: sign_app
+      - name: 8. Secure Signing
         run: |
-          # توليد مفتاح توقيع احترافي مؤقت
-          keytool -genkey -v -keystore nawah_release.jks -alias nawah_alias -keyalg RSA -keysize 2048 -validity 10000 -storepass "nawah_pass_2026" -keypass "nawah_pass_2026" -dname "CN=Nawah, O=AI-OS, C=EG" -noprompt
-          
-          # تحديد مسار الـ APK الخام
-          RAW_APK=$(find android/app/build/outputs/apk/release/ -name "*.apk" | head -n 1)
-          
-          # البحث عن أحدث إصدار من apksigner وتوقيع الملف
-          BUILD_TOOLS_PATH=$(ls -d $ANDROID_HOME/build-tools/* | tail -n 1)
-          $BUILD_TOOLS_PATH/apksigner sign --ks nawah_release.jks --ks-pass pass:"nawah_pass_2026" --out Nawah-AIOS-Final.apk "$RAW_APK"
-          
-          echo "APK_READY=true" >> $GITHUB_ENV
+          keytool -genkey -v -keystore nawah.jks -alias nawah_alias -keyalg RSA -keysize 2048 -validity 10000 -storepass "nawah2026" -keypass "nawah2026" -dname "CN=Nawah, O=AI, C=EG" -noprompt
+          APK_RAW=$(find android/app/build/outputs/apk/release/ -name "*.apk" | head -n 1)
+          SDK_PATH=$(ls -d $ANDROID_HOME/build-tools/* | tail -n 1)
+          $SDK_PATH/apksigner sign --ks nawah.jks --ks-pass pass:"nawah2026" --out Nawah-AIOS-v2.apk "$APK_RAW"
 
-      - name: 9. Upload Artifacts (Optional backup)
-        uses: actions/upload-artifact@v4
-        with:
-          name: nawah-binary
-          path: Nawah-AIOS-Final.apk
-
-      - name: 10. Official Release Deployment
-        if: env.APK_READY == 'true'
+      - name: 9. Deploy Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v2.0.${{ github.run_number }}
-          name: "Nawah AI-OS v2.0.${{ github.run_number }}"
-          body: |
-            ### 🚀 Nawah AI-OS Deployment Successful
-            - **Package:** `com.nawah.aios`
-            - **Build Engine:** Node 22 / Java 17
-            - **Status:** Verified & Signed
-            
-            هذا الإصدار جاهز للتثبيت المباشر على أجهزة الأندرويد.
-          files: Nawah-AIOS-Final.apk
+          name: "Nawah AI-OS Build v2.0.${{ github.run_number }}"
+          files: Nawah-AIOS-v2.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
