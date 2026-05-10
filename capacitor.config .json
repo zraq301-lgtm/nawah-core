@@ -1,6 +1,6 @@
 {
-  "appId": "com.mamoul.app",
-  "appName": "معمول",
+  "appId": "com.nawah.aios",
+  "appName": "Nawah AI-OS",
   "webDir": "dist",
   "server": {
     "androidScheme": "https",
