@@ -1,19 +1,17 @@
-import React, { Suspense, lazy } from 'react';
+import React, { lazy, Suspense } from 'react';
 import { Routes, Route } from 'react-router-dom';
 
-// استخدام Lazy Loading يجعل Vite أكثر تسامحاً أثناء البناء
+// استدعاء الصفحة باستخدام Lazy Loading للأداء العالي
 const DashboardHome = lazy(() => import('../features/DashboardHome'));
-const InventoryPage = lazy(() => import('../features/inventory/InventoryPage'));
+const InventoryForm = lazy(() => import('../features/inventory/InventoryForm'));
 
 export const NavigationContainer = () => {
   return (
-    <Suspense fallback={<div className="p-4 text-pink-400">جاري التحميل...</div>}>
+    <Suspense fallback={<div className="p-10 text-center text-pink-500">جاري تحميل الوحدة...</div>}>
       <Routes>
         <Route path="/" element={<DashboardHome />} />
-        <Route path="/inventory" element={<InventoryPage />} />
-        
-        {/* إذا لم تكن متأكداً من وجود ملف WasteAnalysis، عطل السطر التالي بوضع // قبله */}
-        {/* <Route path="/waste" element={<div>قريباً</div>} /> */}
+        <Route path="/inventory" element={<InventoryForm />} />
+        {/* المسارات الأخرى تضاف هنا بنفس الطريقة */}
       </Routes>
     </Suspense>
   );
