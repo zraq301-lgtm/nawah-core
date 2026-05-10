@@ -1,97 +1,43 @@
-name: "Nawah AI-OS Professional Build Pipeline"
+name: Deploy Nawah AI-OS to Pages
 
 on:
   push:
-    branches:
-      - main
+    branches: ["main"]
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
+  pages: write
+  id-token: write
 
 jobs:
-  build:
-    name: Build & Release Nawah AI-OS
+  build_and_deploy:
     runs-on: ubuntu-latest
-
     steps:
-      - name: 1. Checkout Code
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: 2. Setup Node.js (v22)
+      - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: 22
 
-      - name: 3. Setup Java 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '17'
-
-      - name: 4. Production Web Build (Fixed Tailwind Error)
+      - name: Install & Build
         run: |
-          # تثبيت المكتبات مع تجاهل مشاكل الـ Lock
           npm install --legacy-peer-deps --no-package-lock
-          
-          # محاولة البناء مع السماح بمرور الأخطاء الطفيفة في الـ CSS
-          # وتحديد مجلد الإخراج بوضوح لـ Vite
-          export NODE_ENV=production
-          npm run build || (echo "Warning: Build had issues, checking dist folder..." && mkdir -p dist)
-          
-          # التأكد من وجود مجلد www ونقل الملفات
-          mkdir -p www
-          if [ -d "dist" ] && [ "$(ls -A dist)" ]; then
-            cp -r dist/* www/
-          elif [ -d "build" ]; then
-            cp -r build/* www/
-          else
-            echo "Error: No build artifacts found!" && exit 1
-          fi
+          # تثبيت المكتبات الناقصة لضمان النجاح
+          npm install zustand lucide-react framer-motion --save
+          npm run build
 
-      - name: 5. Android Environment Sync
-        run: |
-          rm -rf android
-          npx cap add android
-          npx cap sync android
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
 
-      - name: 6. Nawah Identity Injection
-        run: |
-          mkdir -p android/app/
-          cat <<EOF > android/app/google-services.json
-          {
-            "project_info": { "project_number": "162488255991", "project_id": "nawah-aios" },
-            "client": [ { "client_info": { "mobilesdk_app_id": "1:162488255991:android:73d6299f11a1b7aec61af2", "android_client_info": { "package_name": "com.nawah.aios" } }, "api_key": [ { "current_key": "AIzaSyAKjsgnoHnGGr3urhm6Kpu7RvxN2dp6sJQ" } ], "services": { "appinvite_service": { "other_platform_oauth_client": [] } } } ],
-            "configuration_version": "1"
-          }
-          EOF
-          
-          GRADLE="android/app/build.gradle"
-          sed -i 's/namespace .*/namespace "com.nawah.aios"/' $GRADLE
-          sed -i 's/applicationId .*/applicationId "com.nawah.aios"/' $GRADLE
-          
-          STRINGS="android/app/src/main/res/values/strings.xml"
-          [ -f "$STRINGS" ] && sed -i 's/<string name="app_name">.*<\/string>/<string name="app_name">Nawah AI-OS<\/string>/' $STRINGS
-
-      - name: 7. Gradle Compilation
-        working-directory: ./android
-        run: |
-          chmod +x gradlew
-          echo "configurations.all { resolutionStrategy.eachDependency { details -> if (details.requested.name == 'bcprov-jdk18on') { details.useVersion '1.78.1' } } }" >> build.gradle
-          ./gradlew assembleRelease --no-daemon -Dorg.gradle.jvmargs="-Xmx3072m"
-
-      - name: 8. Secure Signing
-        run: |
-          keytool -genkey -v -keystore nawah.jks -alias nawah_alias -keyalg RSA -keysize 2048 -validity 10000 -storepass "nawah2026" -keypass "nawah2026" -dname "CN=Nawah, O=AI, C=EG" -noprompt
-          APK_RAW=$(find android/app/build/outputs/apk/release/ -name "*.apk" | head -n 1)
-          SDK_PATH=$(ls -d $ANDROID_HOME/build-tools/* | tail -n 1)
-          $SDK_PATH/apksigner sign --ks nawah.jks --ks-pass pass:"nawah2026" --out Nawah-AIOS-Final.apk "$APK_RAW"
-
-      - name: 9. Deploy Release
-        uses: softprops/action-gh-release@v2
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
         with:
-          tag_name: v2.0.${{ github.run_number }}
-          name: "Nawah AI-OS Build v2.0.${{ github.run_number }}"
-          files: Nawah-AIOS-Final.apk
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # التأكد من رفع مجلد dist الناتج عن Vite
+          path: './dist'
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
