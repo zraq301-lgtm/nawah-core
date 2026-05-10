@@ -1,4 +1,4 @@
-name: "Mamoul Final Recovery Build"
+name: "Nawah AI-OS Professional Build Pipeline"
 
 on:
   push:
@@ -16,75 +16,83 @@ jobs:
       - name: 1. Checkout Code
         uses: actions/checkout@v4
 
-      - name: 2. Setup Node.js
+      - name: 2. Setup Node.js (v22)
         uses: actions/setup-node@v4
         with:
           node-version: '22'
+          cache: 'npm'
 
       - name: 3. Setup Java 17
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
-          # تم حذف سطر الكاش نهائياً لمنع الخطأ الحالي
-          
-      - name: 4. Build Web Project
+
+      - name: 4. Build Web Project (Vite)
         run: |
           npm install --legacy-peer-deps
           npm run build
-          # ضمان وجود المجلد المطلوب
+          # ضمان المزامنة مع مجلد www المطلوب لـ Capacitor
           mkdir -p www
-          cp -r dist/* www/ || echo "Using existing files"
+          cp -r dist/* www/
 
-      - name: 5. Force Create Android Project
+      - name: 5. Clean & Rebuild Android Platform
         run: |
-          # تنظيف وحذف أي بقايا قديمة
           rm -rf android
-          # إضافة المنصة وبناء المجلد من الصفر
           npx cap add android
           npx cap sync android
 
-      - name: 6. Inject Identity & Firebase
+      - name: 6. Inject Nawah Identity & Firebase
         run: |
           mkdir -p android/app/
+          # حقن ملف google-services مع تحديث المعرف الجديد
           cat <<EOF > android/app/google-services.json
           {
-            "project_info": { "project_number": "162488255991", "project_id": "mamoul-app" },
-            "client": [ { "client_info": { "mobilesdk_app_id": "1:162488255991:android:73d6299f11a1b7aec61af2", "android_client_info": { "package_name": "com.mamoul.app" } }, "api_key": [ { "current_key": "AIzaSyAKjsgnoHnGGr3urhm6Kpu7RvxN2dp6sJQ" } ], "services": { "appinvite_service": { "other_platform_oauth_client": [] } } } ],
+            "project_info": { "project_number": "162488255991", "project_id": "nawah-aios" },
+            "client": [ { "client_info": { "mobilesdk_app_id": "1:162488255991:android:73d6299f11a1b7aec61af2", "android_client_info": { "package_name": "com.nawah.aios" } }, "api_key": [ { "current_key": "AIzaSyAKjsgnoHnGGr3urhm6Kpu7RvxN2dp6sJQ" } ], "services": { "appinvite_service": { "other_platform_oauth_client": [] } } } ],
             "configuration_version": "1"
           }
           EOF
           
-          # ضبط المعرفات بدقة
-          sed -i 's/namespace ".*"/namespace "com.mamoul.app"/' android/app/build.gradle
-          sed -i 's/applicationId ".*"/applicationId "com.mamoul.app"/' android/app/build.gradle
+          # تحديث الـ Namespace والـ Application ID برمجياً ليتوافق مع Nawah
+          sed -i 's/namespace ".*"/namespace "com.nawah.aios"/' android/app/build.gradle
+          sed -i 's/applicationId ".*"/applicationId "com.nawah.aios"/' android/app/build.gradle
           
+          # تحديث اسم التطبيق في موارد الأندرويد
           STRINGS="android/app/src/main/res/values/strings.xml"
           if [ -f "$STRINGS" ]; then
-            sed -i 's/<string name="app_name">.*<\/string>/<string name="app_name">معمول<\/string>/' $STRINGS
+            sed -i 's/<string name="app_name">.*<\/string>/<string name="app_name">Nawah AI-OS<\/string>/' $STRINGS
           fi
 
       - name: 7. Native Android Compilation
         working-directory: ./android
         run: |
           chmod +x gradlew
-          # إصلاح تعارض مكتبة bcprov
+          # حل تعارضات المكتبات الشائعة وزيادة سعة الذاكرة
           echo "configurations.all { resolutionStrategy.eachDependency { details -> if (details.requested.name == 'bcprov-jdk18on') { details.useVersion '1.78.1' } } }" >> build.gradle
-          # البناء مع رفع كفاءة الذاكرة لتجنب الانهيار الصامت
-          ./gradlew assembleRelease --no-daemon -Dorg.gradle.jvmargs="-Xmx2048m"
+          ./gradlew assembleRelease --no-daemon -Dorg.gradle.jvmargs="-Xmx3072m"
 
-      - name: 8. Sign APK
+      - name: 8. Sign APK (Professional Mode)
         run: |
-          keytool -genkey -v -keystore mamoul.jks -alias mamoul_alias -keyalg RSA -keysize 2048 -validity 10000 -storepass "mamoul_pass_2026" -keypass "mamoul_pass_2026" -dname "CN=MamoulApp, O=Mamoul, C=EG" -noprompt
+          # إنشاء مفتاح توقيع مؤقت للمشروع الجديد
+          keytool -genkey -v -keystore nawah.jks -alias nawah_alias -keyalg RSA -keysize 2048 -validity 10000 -storepass "nawah_pass_2026" -keypass "nawah_pass_2026" -dname "CN=NawahTeam, O=Nawah, C=EG" -noprompt
+          
           APK_PATH=$(find android/app/build/outputs/apk/release/ -name "*.apk" | head -n 1)
           BUILD_TOOLS_VERSION=$(ls $ANDROID_HOME/build-tools | tail -n 1)
-          $ANDROID_HOME/build-tools/$BUILD_TOOLS_VERSION/apksigner sign --ks mamoul.jks --ks-pass pass:"mamoul_pass_2026" --out Mamoul-Final.apk "$APK_PATH"
+          
+          # التوقيع النهائي للملف
+          $ANDROID_HOME/build-tools/$BUILD_TOOLS_VERSION/apksigner sign --ks nawah.jks --ks-pass pass:"nawah_pass_2026" --out Nawah-AIOS-Final.apk "$APK_PATH"
 
-      - name: 9. Release to GitHub
+      - name: 9. Deploy to GitHub Releases
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.5.${{ github.run_number }}
-          name: "Mamoul Stable Build v1.5.${{ github.run_number }}"
-          files: Mamoul-Final.apk
+          tag_name: v2.0.${{ github.run_number }}
+          name: "Nawah AI-OS Release v2.0.${{ github.run_number }}"
+          body: |
+            ### 🚀 New Release Highlights
+            - Transitioned to Nawah AI-OS Ecosystem.
+            - Optimized Build Pipeline with Node.js 22.
+            - Enhanced Android integration and signing.
+          files: Nawah-AIOS-Final.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
