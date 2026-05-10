@@ -1,49 +1,27 @@
-import { defineConfig } from 'vite';
-import react from '@vitejs/plugin-react';
-import tailwindcss from '@tailwindcss/vite';
-import { resolve } from 'path';
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+import tailwindcss from '@tailwindcss/vite'
 
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [
     react(),
+    // إضافة تيلوند كمكون إضافي لـ Vite لضمان معالجة الكلاسات أثناء الـ Build
     tailwindcss(),
   ],
-  resolve: {
-    alias: {
-      // تسهيل استدعاء الملفات باستخدام @ بدلاً من المسارات النسبية الطويلة
-      '@': resolve(__dirname, './src'),
-    },
-  },
   build: {
-    // تحديد المجلد النهائي ليتوافق مع إعدادات Capacitor
+    // تحديد مجلد الإخراج ليتوافق مع مسار الأكشن (dist)
     outDir: 'dist',
-    // تحسين الأداء وتصغير حجم الملفات
-    minify: 'terser',
-    terserOptions: {
-      compress: {
-        // حذف الـ console.log في نسخة الإنتاج لزيادة الخصوصية والأداء
-        drop_console: true,
-        drop_debugger: true,
-      },
-    },
-    // تقسيم الكود (Code Splitting) لضمان سرعة التحميل
+    // تحسين معالجة الملفات الكبيرة لتجنب أخطاء الذاكرة في الأكشن
+    chunkSizeWarningLimit: 1600,
     rollupOptions: {
       output: {
         manualChunks: {
-          vendor: ['react', 'react-dom', 'react-router-dom'],
-          utils: ['axios', 'luxon', 'sweetalert2'],
+          vendor: ['react', 'react-dom'],
         },
       },
     },
-    // زيادة التوافق مع المتصفحات القديمة نوعاً ما
-    target: 'esnext',
-    sourcemap: false,
   },
-  server: {
-    // إعدادات السيرفر المحلي
-    port: 3000,
-    host: true, // مهم لتجربة التطبيق على المتصفح من الموبايل عبر الشبكة المحلية
-    open: true,
-  },
-});
+  // لضمان عمل المسارات بشكل صحيح عند التشغيل على الأندرويد (Capacitor)
+  base: './',
+})
