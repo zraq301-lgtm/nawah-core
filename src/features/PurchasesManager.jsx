@@ -1,15 +1,37 @@
 import React, { useState } from 'react';
-import { Package, Truck, Calendar, Hash, DollarSign, ArrowRight, Save, ShoppingCart, Clock, Bell, Table } from 'lucide-react';
+import { Package, Truck, Calendar, Hash, DollarSign, ArrowRight, Save, ShoppingCart, Clock, Bell, Table, PlusCircle } from 'lucide-react';
 import DataGrid from './DataGrid';
 
 const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigger, inventory = [] }) => {
   const [activeView, setActiveView] = useState('menu');
+  const [isNewItem, setIsNewItem] = useState(false); // حالة للتبديل بين اختيار صنف أو إضافة جديد
+  
   const [formData, setFormData] = useState({
     item: '', unit: '', quantity: '', price: '',
     supplier: '', paymentMethod: 'كاش',
     date: new Date().toISOString().split('T')[0]
   });
   const [orderRequest, setOrderRequest] = useState({ item: '', currentStock: 0, daysLeft: 0, neededQty: 0 });
+
+  // دالة التعامل مع اختيار صنف موجود مسبقاً
+  const handleExistingItemSelect = (itemName) => {
+    if (itemName === "NEW_ITEM") {
+      setIsNewItem(true);
+      setFormData({ ...formData, item: '', unit: '', price: '' });
+      return;
+    }
+    
+    const selected = stock.find(s => s.name === itemName);
+    if (selected) {
+      setFormData({
+        ...formData,
+        item: selected.name,
+        unit: selected.unit || '',
+        price: selected.price || '' // جلب آخر سعر مسجل تلقائياً
+      });
+      setIsNewItem(false);
+    }
+  };
 
   const handleItemSelect = (itemName) => {
     const itemInStock = stock.find(s => s.name === itemName);
@@ -56,6 +78,7 @@ const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigg
     onPurchaseComplete(purchaseWithBatch);
     alert(`تم الحفظ وإضافة شحنة جديدة للمخزن برقم ${purchaseWithBatch.batchInfo.batchId}`);
     setFormData({ item: '', unit: '', quantity: '', price: '', supplier: '', paymentMethod: 'كاش', date: new Date().toISOString().split('T')[0] });
+    setIsNewItem(false);
     setActiveView('menu');
   };
 
@@ -170,13 +193,44 @@ const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigg
     return (
       <div style={{ padding: '15px', direction: 'rtl', fontFamily: "'Tajawal', sans-serif", minHeight: '100vh' }}>
         <div className="page-header">
-          <button onClick={() => setActiveView('menu')} style={{ border: 'none', background: 'rgba(240, 253, 244, 0.8)', padding: '8px', borderRadius: '50%', cursor: 'pointer' }}><ArrowRight size={20} /></button>
+          <button onClick={() => {setActiveView('menu'); setIsNewItem(false);}} style={{ border: 'none', background: 'rgba(240, 253, 244, 0.8)', padding: '8px', borderRadius: '50%', cursor: 'pointer' }}><ArrowRight size={20} /></button>
           <h3 style={{ margin: 0 }}>تسجيل فاتورة شراء</h3>
         </div>
         <div className="glass-card">
           <form onSubmit={handleSave}>
             <label className="form-label"><Package size={16} color="#1e5631" /> اسم الصنف</label>
-            <input className="glass-input" placeholder="مثال: دقيق" required value={formData.item} onChange={e => setFormData({ ...formData, item: e.target.value })} style={{ marginBottom: '10px' }} />
+            
+            {/* القائمة المنسدلة لاختيار صنف موجود */}
+            {!isNewItem ? (
+              <select 
+                className="glass-input" 
+                required 
+                value={formData.item}
+                onChange={e => handleExistingItemSelect(e.target.value)} 
+                style={{ marginBottom: '10px' }}
+              >
+                <option value="">اختر من المخزن...</option>
+                {stock.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                <option value="NEW_ITEM" style={{color: '#1e5631', fontWeight: 'bold'}}>+ إضافة صنف جديد غير مسجل</option>
+              </select>
+            ) : (
+              <div style={{ position: 'relative' }}>
+                <input 
+                  className="glass-input" 
+                  placeholder="اكتب اسم الصنف الجديد هنا" 
+                  required 
+                  value={formData.item} 
+                  onChange={e => setFormData({ ...formData, item: e.target.value })} 
+                  style={{ marginBottom: '10px', paddingLeft: '40px' }} 
+                />
+                <button 
+                  type="button" 
+                  onClick={() => setIsNewItem(false)} 
+                  style={{ position: 'absolute', left: '10px', top: '10px', border: 'none', background: 'none', color: '#ef4444', fontSize: '0.7rem' }}
+                >إلغاء</button>
+              </div>
+            )}
+
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
               <div><label className="form-label">الوحدة</label><input className="glass-input" placeholder="كيلو/كرتونة" value={formData.unit} onChange={e => setFormData({ ...formData, unit: e.target.value })} style={{ marginBottom: '10px' }} /></div>
               <div><label className="form-label"><Hash size={16} color="#1e5631" /> الكمية</label><input type="number" className="glass-input" required inputMode="decimal" value={formData.quantity} onChange={e => setFormData({ ...formData, quantity: e.target.value })} style={{ marginBottom: '10px' }} /></div>
