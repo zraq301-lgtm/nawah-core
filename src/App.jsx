@@ -1,86 +1,146 @@
-import React, { useEffect, useState } from 'react';
-import { BrowserRouter as Router } from 'react-router-dom';
-import { Capacitor } from '@capacitor/core';
-import { PushNotifications } from '@capacitor/push-notifications';
+import React, { useState, useEffect, useMemo } from 'react';
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import Swal from 'sweetalert2';
+import { CapacitorHttp, Capacitor } from '@capacitor/core';
 
-// تم حذف استيراد AdMob لضمان استقرار التطبيق
-import { NavigationContainer } from './components/Navigation';
+// استيراد المكونات (تأكد من مطابقة المسارات في مشروعك)
 import Sidebar from './components/shared/Sidebar';
-import TopBar from './components/shared/TopBar';
+import DashboardHome from './features/DashboardHome';
+import InventoryForm from './features/inventory/InventoryForm';
+import configData from './nawah.config.json';
+
+import './App.css';
+
+// --- الرابط الأساسي الجديد ---
+const BASE_URL = "https://nawah-aioi.vercel.app";
+
+// --- محرك الاتصال الموحد (HTTP Handlers) ---
+const api = {
+  post: async (endpoint, body) => {
+    const url = `${BASE_URL}${endpoint}`;
+    if (Capacitor.isNativePlatform()) {
+      const response = await CapacitorHttp.post({
+        url,
+        headers: { 'Content-Type': 'application/json' },
+        data: body
+      });
+      return response.data;
+    }
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    return res.json();
+  },
+  get: async (endpoint) => {
+    const url = `${BASE_URL}${endpoint}`;
+    if (Capacitor.isNativePlatform()) {
+      const response = await CapacitorHttp.get({
+        url,
+        headers: { 'Content-Type': 'application/json' }
+      });
+      return typeof response.data === 'string' ? JSON.parse(response.data) : response.data;
+    }
+    const res = await fetch(url);
+    return res.json();
+  }
+};
 
 const App = () => {
-  const [isInitializing, setIsInitializing] = useState(true);
+  // --- States (نفس الأسماء السابقة لضمان التوافق) ---
+  const [stock, setStock] = useState([]);
+  const [salesData, setSalesData] = useState([]);
+  const [inventory, setInventory] = useState([]);
+  const [expenses, setExpenses] = useState([]);
+  const [waste, setWaste] = useState([]);
+  const [staff, setStaff] = useState([]);
 
-  // نمط الزجاج (Glassmorphism) الموحد للنظام
-  const glassStyle = "bg-white/20 backdrop-blur-lg border border-white/30 rounded-3xl shadow-xl";
-
-  useEffect(() => {
-    const initializePlatform = async () => {
-      try {
-        if (Capacitor.isNativePlatform()) {
-          // تهيئة الإشعارات فقط
-          await setupNotifications().catch(err => console.warn("Push init skipped:", err));
-        }
-      } catch (e) {
-        console.warn("Platform services init failed:", e);
-      } finally {
-        setIsInitializing(false);
-      }
+  // --- نظام المزامنة مع الرابط الجديد ---
+  const fetchAllFromCloud = async () => {
+    const collections = ['stock', 'salesData', 'inventory', 'expenses', 'waste', 'staff'];
+    const setters = { 
+      stock: setStock, salesData: setSalesData, inventory: setInventory, 
+      expenses: setExpenses, waste: setWaste, staff: setStaff 
     };
 
-    initializePlatform();
-  }, []);
-
-  const setupNotifications = async () => {
-    if (Capacitor.getPlatform() === 'web') return;
-    
-    let perm = await PushNotifications.checkPermissions();
-    if (perm.receive === 'prompt') {
-      perm = await PushNotifications.requestPermissions();
-    }
-    if (perm.receive === 'granted') {
-      await PushNotifications.register();
+    for (const col of collections) {
+      try {
+        const result = await api.get(`/api/get-data?collectionName=${col}`);
+        if (result?.success && result?.data) {
+          setters[col](result.data);
+          localStorage.setItem(col, JSON.stringify(result.data));
+        }
+      } catch (err) {
+        console.error(`Error fetching ${col}:`, err);
+      }
     }
   };
 
-  if (isInitializing) {
-    return (
-      <div className="flex h-screen w-screen items-center justify-center bg-pink-50" dir="rtl">
-        <div className="flex flex-col items-center gap-4">
-          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-pink-400"></div>
-          <div className="animate-pulse text-pink-400 font-bold text-xl tracking-widest">نواة AI-OS</div>
-        </div>
-      </div>
-    );
-  }
+  const syncToCloud = async (collectionName, data) => {
+    if (!data || data.length === 0) return;
+    await api.post('/api/sync', { collectionName, data });
+  };
+
+  // --- تحميل البيانات عند البداية ---
+  useEffect(() => {
+    fetchAllFromCloud();
+  }, []);
+
+  // --- المزامنة التلقائية عند أي تغيير ---
+  useEffect(() => {
+    const syncMap = { stock, salesData, inventory, expenses, waste, staff };
+    Object.entries(syncMap).forEach(([key, val]) => {
+      syncToCloud(key, val);
+      localStorage.setItem(key, JSON.stringify(val));
+    });
+  }, [stock, salesData, inventory, expenses, waste, staff]);
+
+  // --- المحرك المالي (useMemo للحسابات الدقيقة) ---
+  const stats = useMemo(() => {
+    const totalIncome = salesData.reduce((sum, s) => sum + (parseFloat(s.total) || 0), 0);
+    const totalExp = expenses.reduce((sum, e) => sum + (parseFloat(e.amount) || 0), 0);
+    const cashBalance = totalIncome - totalExp;
+    return { totalIncome, totalExpenses: totalExp, cashBalance };
+  }, [salesData, expenses]);
 
   return (
     <Router>
-      <div className="min-h-screen bg-gradient-to-br from-pink-50 via-blue-50 to-purple-50 p-3 md:p-6 flex items-center justify-center text-right" dir="rtl">
+      <div className="app-container min-h-screen bg-pink-50/30 flex flex-col md:flex-row-reverse" dir="rtl">
         
-        {/* الحاوية الرئيسية للهيكل التنظيمي */}
-        <div className={`flex w-full max-w-7xl h-[90vh] overflow-hidden ${glassStyle}`}>
-          
-          {/* 1. الشريط الجانبي (Sidebar) */}
-          <aside className="w-64 hidden lg:block border-l border-white/20 p-6 bg-white/10">
-            <Sidebar />
-          </aside>
+        {/* Sidebar */}
+        <aside className="hidden md:block w-64 bg-white/40 backdrop-blur-lg border-l border-white/20 p-6">
+          <Sidebar />
+        </aside>
 
-          {/* 2. منطقة المحتوى (Main Content Area) */}
-          <div className="flex-1 flex flex-col overflow-hidden">
-            
-            {/* الشريط العلوي (TopBar) */}
-            <header className="p-4 border-b border-white/10">
-              <TopBar title="لوحة التحكم الذكية" />
-            </header>
+        {/* Content */}
+        <main className="flex-1 p-4 pb-24 md:pb-4">
+          <Routes>
+            <Route path="/" element={<DashboardHome stats={stats} staffCount={staff.length} />} />
+            <Route path="/inventory" element={
+              <InventoryForm 
+                stock={stock} 
+                onSave={(item) => {
+                  setStock(prev => [...prev, item]);
+                  Swal.fire({ title: 'تم الحفظ سحابياً', icon: 'success', toast: true, position: 'top-end', showConfirmButton: false, timer: 2000 });
+                }} 
+              />
+            } />
+            {/* باقي المسارات تتبع نفس النمط */}
+          </Routes>
+        </main>
 
-            {/* محرك الصفحات (Navigation) */}
-            <main className="flex-1 overflow-y-auto p-4 md:p-6 custom-scrollbar">
-              <NavigationContainer />
-            </main>
-            
-          </div>
-        </div>
+        {/* Bottom Nav للموبايل */}
+        <nav className="md:hidden fixed bottom-0 left-0 right-0 h-20 bg-white/70 backdrop-blur-xl border-t border-white/30 flex justify-around items-center z-50">
+           <button onClick={() => window.location.href='/'} className="flex flex-col items-center gap-1 text-pink-600">
+              <span className="text-xl">🏠</span>
+              <span className="text-[10px] font-bold">الرئيسية</span>
+           </button>
+           <button onClick={() => window.location.href='/inventory'} className="flex flex-col items-center gap-1 text-gray-400">
+              <span className="text-xl">📦</span>
+              <span className="text-[10px] font-bold">المخزن</span>
+           </button>
+        </nav>
       </div>
     </Router>
   );
