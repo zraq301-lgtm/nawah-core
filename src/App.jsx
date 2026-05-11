@@ -1,20 +1,18 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, useNavigate } from 'react-router-dom';
 import Swal from 'sweetalert2';
 import { CapacitorHttp, Capacitor } from '@capacitor/core';
 
-// استيراد المكونات (تأكد من مطابقة المسارات في مشروعك)
+// استيراد المكونات الأساسية
 import Sidebar from './components/shared/Sidebar';
 import DashboardHome from './features/DashboardHome';
 import InventoryForm from './features/inventory/InventoryForm';
 import configData from './nawah.config.json';
 
-import './App.css';
-
-// --- الرابط الأساسي الجديد ---
+// --- الرابط الأساسي للـ API ---
 const BASE_URL = "https://nawah-aioi.vercel.app";
 
-// --- محرك الاتصال الموحد (HTTP Handlers) ---
+// --- محرك الاتصال الموحد (الويب + أندرويد) ---
 const api = {
   post: async (endpoint, body) => {
     const url = `${BASE_URL}${endpoint}`;
@@ -48,7 +46,7 @@ const api = {
 };
 
 const App = () => {
-  // --- States (نفس الأسماء السابقة لضمان التوافق) ---
+  // --- States الحالات ---
   const [stock, setStock] = useState([]);
   const [salesData, setSalesData] = useState([]);
   const [inventory, setInventory] = useState([]);
@@ -56,7 +54,7 @@ const App = () => {
   const [waste, setWaste] = useState([]);
   const [staff, setStaff] = useState([]);
 
-  // --- نظام المزامنة مع الرابط الجديد ---
+  // --- نظام المزامنة السحابي الذكي ---
   const fetchAllFromCloud = async () => {
     const collections = ['stock', 'salesData', 'inventory', 'expenses', 'waste', 'staff'];
     const setters = { 
@@ -82,12 +80,10 @@ const App = () => {
     await api.post('/api/sync', { collectionName, data });
   };
 
-  // --- تحميل البيانات عند البداية ---
   useEffect(() => {
     fetchAllFromCloud();
   }, []);
 
-  // --- المزامنة التلقائية عند أي تغيير ---
   useEffect(() => {
     const syncMap = { stock, salesData, inventory, expenses, waste, staff };
     Object.entries(syncMap).forEach(([key, val]) => {
@@ -96,27 +92,34 @@ const App = () => {
     });
   }, [stock, salesData, inventory, expenses, waste, staff]);
 
-  // --- المحرك المالي (useMemo للحسابات الدقيقة) ---
+  // --- المحرك المالي ---
   const stats = useMemo(() => {
     const totalIncome = salesData.reduce((sum, s) => sum + (parseFloat(s.total) || 0), 0);
     const totalExp = expenses.reduce((sum, e) => sum + (parseFloat(e.amount) || 0), 0);
-    const cashBalance = totalIncome - totalExp;
-    return { totalIncome, totalExpenses: totalExp, cashBalance };
-  }, [salesData, expenses]);
+    return { 
+        totalIncome, 
+        totalExpenses: totalExp, 
+        netProfit: totalIncome - totalExp,
+        stockValue: stock.reduce((sum, i) => sum + (parseFloat(i.price) * parseFloat(i.quantity) || 0), 0)
+    };
+  }, [salesData, expenses, stock]);
 
   return (
     <Router>
       <div className="app-container min-h-screen bg-pink-50/30 flex flex-col md:flex-row-reverse" dir="rtl">
         
-        {/* Sidebar */}
+        {/* القائمة الجانبية */}
         <aside className="hidden md:block w-64 bg-white/40 backdrop-blur-lg border-l border-white/20 p-6">
           <Sidebar />
         </aside>
 
-        {/* Content */}
-        <main className="flex-1 p-4 pb-24 md:pb-4">
+        {/* منطقة عرض المحتوى الرئيسي */}
+        <main className="flex-1 p-4 pb-24 md:pb-4 overflow-y-auto">
           <Routes>
+            {/* الصفحة الرئيسية (Dashboard) */}
             <Route path="/" element={<DashboardHome stats={stats} staffCount={staff.length} />} />
+            
+            {/* صفحة المخزن */}
             <Route path="/inventory" element={
               <InventoryForm 
                 stock={stock} 
@@ -126,23 +129,43 @@ const App = () => {
                 }} 
               />
             } />
-            {/* باقي المسارات تتبع نفس النمط */}
+
+            {/* تعريف باقي المسارات لتعمل أزرار لوحة التحكم */}
+            <Route path="/purchases" element={<div className="p-10 text-center">صفحة المشتريات (قريباً)</div>} />
+            <Route path="/sales" element={<div className="p-10 text-center">صفحة المبيعات (قريباً)</div>} />
+            <Route path="/production" element={<div className="p-10 text-center">صفحة الإنتاج (قريباً)</div>} />
+            <Route path="/waste" element={<div className="p-10 text-center">صفحة الهالك (قريباً)</div>} />
+            <Route path="/expenses" element={<div className="p-10 text-center">صفحة المصروفات (قريباً)</div>} />
+            <Route path="/staff" element={<div className="p-10 text-center">صفحة العمالة (قريباً)</div>} />
+            <Route path="/settings" element={<div className="p-10 text-center">الإعدادات والنسخ الاحتياطي</div>} />
           </Routes>
         </main>
 
         {/* Bottom Nav للموبايل */}
-        <nav className="md:hidden fixed bottom-0 left-0 right-0 h-20 bg-white/70 backdrop-blur-xl border-t border-white/30 flex justify-around items-center z-50">
-           <button onClick={() => window.location.href='/'} className="flex flex-col items-center gap-1 text-pink-600">
-              <span className="text-xl">🏠</span>
-              <span className="text-[10px] font-bold">الرئيسية</span>
-           </button>
-           <button onClick={() => window.location.href='/inventory'} className="flex flex-col items-center gap-1 text-gray-400">
-              <span className="text-xl">📦</span>
-              <span className="text-[10px] font-bold">المخزن</span>
-           </button>
-        </nav>
+        <MobileNavigation />
       </div>
     </Router>
+  );
+};
+
+// مكون التنقل للموبايل لضمان عمل الـ Navigation بسلاسة
+const MobileNavigation = () => {
+  const navigate = useNavigate();
+  return (
+    <nav className="md:hidden fixed bottom-0 left-0 right-0 h-20 bg-white/70 backdrop-blur-xl border-t border-white/30 flex justify-around items-center z-50">
+       <button onClick={() => navigate('/')} className="flex flex-col items-center gap-1 text-pink-600">
+          <span className="text-xl">🏠</span>
+          <span className="text-[10px] font-bold">الرئيسية</span>
+       </button>
+       <button onClick={() => navigate('/inventory')} className="flex flex-col items-center gap-1 text-gray-400">
+          <span className="text-xl">📦</span>
+          <span className="text-[10px] font-bold">المخزن</span>
+       </button>
+       <button onClick={() => navigate('/settings')} className="flex flex-col items-center gap-1 text-gray-400">
+          <span className="text-xl">⚙️</span>
+          <span className="text-[10px] font-bold">إعدادات</span>
+       </button>
+    </nav>
   );
 };
 
