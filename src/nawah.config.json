@@ -1,8 +1,0 @@
-{
-  "clientName": "مصنع نماء",
-  "modules": {
-    "inventory": true,
-    "waste_analysis": true,
-    "ai_mentor": true
-  }
-}
