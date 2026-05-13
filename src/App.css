@@ -1,0 +1,4 @@
+/* App-specific styles - shared styles are in index.css */
+.main-content {
+  min-height: calc(100vh - 75px);
+}
