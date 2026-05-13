@@ -23,7 +23,7 @@ const ODOO_BASE_URL = 'https://nawahio1.odoo.com';
 const ODOO_DB = 'nawahio1';
 
 /**
- * دالة الاتصال الرئيسية المحسنة
+ * دالة الاتصال الرئيسية المحسنة مع نظام تنبيهات متطور للأخطاء
  */
 const callOdoo = async (model, method, args = [[]], kwargs = {}) => {
     const url = `${ODOO_BASE_URL}/jsonrpc`;
@@ -31,7 +31,7 @@ const callOdoo = async (model, method, args = [[]], kwargs = {}) => {
     const password = localStorage.getItem('user_pass');
 
     if (!uid || !password) {
-        console.error("Credentials missing");
+        Swal.fire('بيانات مفقودة', 'لم يتم العثور على توقيع المستخدم (UID/Pass). يرجى تسجيل الدخول مجدداً.', 'error');
         return { error: { message: "بيانات تسجيل الدخول غير متوفرة" } };
     }
 
@@ -59,18 +59,30 @@ const callOdoo = async (model, method, args = [[]], kwargs = {}) => {
         const response = await CapacitorHttp.post(options);
         const responseData = response.data;
 
+        // في حال وجود خطأ منطقي من أودو (مثل نقص صلاحيات أو بيانات خاطئة)
         if (responseData.error) {
             console.error("Odoo Logic Error:", responseData.error);
-            // إظهار تفاصيل الخطأ إذا وجد
             const errorMsg = responseData.error.data?.message || responseData.error.message;
-            if (!errorMsg.includes("access denied")) { 
-                Swal.fire('تنبيه من أودو', errorMsg, 'warning');
-            }
+            
+            // تنبيه مفصل لسبب رفض أودو للبيانات
+            Swal.fire({
+                title: 'رفض أودو استلام البيانات',
+                text: `السبب: ${errorMsg}`,
+                icon: 'error',
+                confirmButtonText: 'مفهوم'
+            });
         }
         
         return responseData;
     } catch (err) {
+        // في حال فشل الاتصال بالسيرفر من الأساس (إنترنت أو رابط خطأ)
         console.error("Network/Capacitor Error:", err);
+        Swal.fire({
+            title: 'فشل الاتصال بالسيرفر',
+            text: 'تأكد من تشغيل الإنترنت، وصحة رابط السيرفر nawahio1.odoo.com',
+            icon: 'warning',
+            confirmButtonText: 'إعادة محاولة'
+        });
         return { error: err };
     }
 };
@@ -95,9 +107,6 @@ const App = () => {
     const [cashBook, setCashBook] = useState([]);
     const [staff, setStaff] = useState([]);
 
-    /**
-     * فحص صلاحيات المستخدم عند التشغيل
-     */
     const checkUserPermissions = async () => {
         const models = ["product.template", "sale.order", "purchase.order"];
         for (const m of models) {
@@ -108,11 +117,7 @@ const App = () => {
         }
     };
 
-    /**
-     * جلب البيانات الشاملة من أودو
-     */
     const fetchAllFromOdoo = async () => {
-        // جلب المنتجات والمخزون
         const resProducts = await callOdoo("product.template", "search_read", [[]], { 
             fields: ["name", "qty_available", "list_price", "uom_id"] 
         });
@@ -127,7 +132,6 @@ const App = () => {
             })));
         }
 
-        // جلب الشركاء
         const resPartners = await callOdoo("res.partner", "search_read", [[]], {
             fields: ["name", "customer_rank", "supplier_rank"]
         });
@@ -147,7 +151,6 @@ const App = () => {
         }
     }, []);
 
-    // الحسابات المالية اللحظية
     const financialStats = useMemo(() => {
         const totalIncome = salesData.reduce((sum, s) => sum + (parseFloat(s.total) || 0), 0);
         const totalExp = expenses.reduce((sum, e) => sum + (parseFloat(e.amount) || 0), 0);
@@ -155,7 +158,6 @@ const App = () => {
         return { totalIncome, totalExpenses: totalExp, cashBalance: totalIncome - totalExp, stockValue };
     }, [salesData, expenses, stock]);
 
-    // وظيفة المشتريات
     const handleSavePurchase = async (p) => {
         const res = await callOdoo("purchase.order", "create", [{
             'partner_id': parseInt(p.supplierId),
@@ -174,7 +176,6 @@ const App = () => {
         }
     };
 
-    // وظيفة المبيعات
     const handleSaveSale = async (sale) => {
         const res = await callOdoo("sale.order", "create", [{
             'partner_id': parseInt(sale.customerId),
