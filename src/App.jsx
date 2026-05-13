@@ -31,7 +31,7 @@ const callOdoo = async (model, method, args = [[]], kwargs = {}) => {
     const password = localStorage.getItem('user_pass');
 
     if (!uid || !password) {
-        Swal.fire('بيانات مفقودة', 'لم يتم العثور على توقيع المستخدم (UID/Pass). يرجى تسجيل الدخول مجدداً.', 'error');
+        // تم تعطيل Swal هنا لمنع ظهور رسالة الخطأ أثناء مرحلة التحقق الأولية في تسجيل الدخول
         return { error: { message: "بيانات تسجيل الدخول غير متوفرة" } };
     }
 
@@ -59,12 +59,10 @@ const callOdoo = async (model, method, args = [[]], kwargs = {}) => {
         const response = await CapacitorHttp.post(options);
         const responseData = response.data;
 
-        // في حال وجود خطأ منطقي من أودو (مثل نقص صلاحيات أو بيانات خاطئة)
         if (responseData.error) {
             console.error("Odoo Logic Error:", responseData.error);
             const errorMsg = responseData.error.data?.message || responseData.error.message;
             
-            // تنبيه مفصل لسبب رفض أودو للبيانات
             Swal.fire({
                 title: 'رفض أودو استلام البيانات',
                 text: `السبب: ${errorMsg}`,
@@ -75,7 +73,6 @@ const callOdoo = async (model, method, args = [[]], kwargs = {}) => {
         
         return responseData;
     } catch (err) {
-        // في حال فشل الاتصال بالسيرفر من الأساس (إنترنت أو رابط خطأ)
         console.error("Network/Capacitor Error:", err);
         Swal.fire({
             title: 'فشل الاتصال بالسيرفر',
@@ -142,14 +139,31 @@ const App = () => {
         }
     };
 
+    // المعالجة المطلوبة لمشكلة تسجيل الدخول
     useEffect(() => {
-        const uid = localStorage.getItem('odoo_uid');
-        if (uid) {
-            setIsLoggedIn(true);
-            checkUserPermissions();
-            fetchAllFromOdoo();
-        }
-    }, []);
+        const checkLoginStatus = () => {
+            const uid = localStorage.getItem('odoo_uid');
+            if (uid && !isLoggedIn) {
+                setIsLoggedIn(true);
+                checkUserPermissions();
+                fetchAllFromOdoo();
+                return true;
+            }
+            return false;
+        };
+
+        // فحص أولي
+        checkLoginStatus();
+
+        // نظام فحص تلقائي كل ثانية لحل مشكلة التعليق في صفحة الدخول (الصورة Screenshot_٢٠٢٦٠٥١٣-١٩٣٨٣٤.png)
+        const loginWatcher = setInterval(() => {
+            if (checkLoginStatus()) {
+                clearInterval(loginWatcher); // توقف عن الفحص بمجرد النجاح
+            }
+        }, 1000);
+
+        return () => clearInterval(loginWatcher);
+    }, [isLoggedIn]);
 
     const financialStats = useMemo(() => {
         const totalIncome = salesData.reduce((sum, s) => sum + (parseFloat(s.total) || 0), 0);
