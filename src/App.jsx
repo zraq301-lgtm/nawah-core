@@ -1,8 +1,8 @@
-        import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import Swal from 'sweetalert2';
-import { CapacitorHttp, Capacitor } from '@capacitor/core';
+import { CapacitorHttp } from '@capacitor/core';
 
-// استيراد المكونات (تأكد من وجودها في المجلدات الصحيحة)
+// استيراد المكونات
 import Dashboard from './components/Dashboard';
 import PurchasesManager from './components/PurchasesManager';
 import Sales from './components/Sales';
@@ -22,18 +22,21 @@ import './App.css';
 const ODOO_BASE_URL = 'https://nawahio1.odoo.com';
 const ODOO_DB = 'nawahio1';
 
-// --- دالة الاتصال مع نظام كشف أخطاء متطور ---
+/**
+ * دالة الاتصال الرئيسية باستخدام CapacitorHttp للتعامل مع أودو كـ "سيرفر خارجي"
+ * هذه الطريقة تتخطى مشاكل الـ CORS في المتصفحات
+ */
 const callOdoo = async (model, method, args = [[]], kwargs = {}) => {
     const url = `${ODOO_BASE_URL}/jsonrpc`;
     const uid = localStorage.getItem('odoo_uid');
     const password = localStorage.getItem('user_pass');
 
     if (!uid || !password) {
-        console.error("Missing Credentials");
-        return { error: { message: "لم يتم العثور على بيانات تسجيل الدخول" } };
+        console.error("Credentials missing in localStorage");
+        return { error: { message: "بيانات تسجيل الدخول غير متوفرة" } };
     }
 
-    const body = {
+    const payload = {
         jsonrpc: "2.0",
         method: "call",
         params: {
@@ -45,32 +48,26 @@ const callOdoo = async (model, method, args = [[]], kwargs = {}) => {
     };
 
     try {
-        let responseData;
-        if (Capacitor.isNativePlatform()) {
-            const response = await CapacitorHttp.post({
-                url,
-                headers: { 'Content-Type': 'application/json' },
-                data: body
-            });
-            responseData = response.data;
-        } else {
-            const res = await fetch(url, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(body)
-            });
-            responseData = await res.json();
-        }
+        const options = {
+            url: url,
+            headers: { 'Content-Type': 'application/json' },
+            data: payload
+        };
 
-        // تسجيل الخطأ إذا رد أودو بخطأ داخلي
+        // استخدام CapacitorHttp دائماً لضمان تخطي حواجز الحماية
+        const response = await CapacitorHttp.post(options);
+        
+        const responseData = response.data;
+
         if (responseData.error) {
-            console.error("Odoo Server Error:", responseData.error);
-            Swal.fire('خطأ في أودو', responseData.error.data?.message || responseData.error.message, 'error');
+            console.error("Odoo Error:", responseData.error);
+            Swal.fire('خطأ من أودو', responseData.error.data?.message || responseData.error.message, 'error');
         }
+        
         return responseData;
     } catch (err) {
-        console.error("Network/Connection Error:", err);
-        Swal.fire('خطأ اتصال', 'تعذر الوصول إلى سيرفر أودو، تأكد من الإنترنت', 'error');
+        console.error("CapacitorHttp Error:", err);
+        Swal.fire('فشل الاتصال', 'تعذر الوصول للسيرفر الخارجي، تحقق من الإنترنت', 'error');
         return { error: err };
     }
 };
@@ -92,22 +89,27 @@ const App = () => {
     const [suppliers, setSuppliers] = useState([]);
     const [customers, setCustomers] = useState([]);
     const [productionData, setProductionData] = useState([]);
-    const [supplierWaitingList, setSupplierWaitingList] = useState([]);
     const [cashBook, setCashBook] = useState([]);
     const [staff, setStaff] = useState([]);
 
-    // --- دالة جلب البيانات مع فحص النتائج ---
+    // جلب البيانات من أودو
     const fetchAllFromOdoo = async () => {
+        // جلب المنتجات والمخزون
         const resProducts = await callOdoo("product.template", "search_read", [[]], { 
             fields: ["name", "qty_available", "list_price", "uom_id"] 
         });
         
         if (resProducts?.result) {
             setStock(resProducts.result.map(i => ({
-                id: i.id, name: i.name, balance: i.qty_available, price: i.list_price, unit: i.uom_id[1]
+                id: i.id, 
+                name: i.name, 
+                balance: i.qty_available, 
+                price: i.list_price, 
+                unit: i.uom_id ? i.uom_id[1] : 'وحدة'
             })));
         }
 
+        // جلب الشركاء (عملاء وموردين)
         const resPartners = await callOdoo("res.partner", "search_read", [[]], {
             fields: ["name", "customer_rank", "supplier_rank"]
         });
@@ -126,7 +128,7 @@ const App = () => {
         }
     }, []);
 
-    // الحسابات المالية (Memo)
+    // الحسابات المالية اللحظية
     const financialStats = useMemo(() => {
         const totalIncome = salesData.reduce((sum, s) => sum + (parseFloat(s.total) || 0), 0);
         const totalExp = expenses.reduce((sum, e) => sum + (parseFloat(e.amount) || 0), 0);
@@ -134,27 +136,26 @@ const App = () => {
         return { totalIncome, totalExpenses: totalExp, cashBalance: totalIncome - totalExp, stockValue };
     }, [salesData, expenses, stock]);
 
-    // --- دوال الحفظ الذكية مع معالجة الأخطاء ---
-    
+    // حفظ المشتريات وتأكيدها في أودو
     const handleSavePurchase = async (p) => {
-        // تأكد من إرسال البيانات بشكل صحيح لموديل المشتريات
         const res = await callOdoo("purchase.order", "create", [{
             'partner_id': parseInt(p.supplierId),
             'order_line': [[0, 0, {
                 'product_id': parseInt(p.productId),
                 'product_qty': parseFloat(p.quantity),
                 'price_unit': parseFloat(p.price),
-                'name': p.productName || 'طلب توريد'
+                'name': p.productName || 'طلب توريد من التطبيق'
             }]]
         }]);
 
         if (res?.result) {
             await callOdoo("purchase.order", "button_confirm", [[res.result]]);
-            showSwal('تم التوريد بنجاح');
+            showSwal('تم التوريد وتحديث أودو');
             fetchAllFromOdoo();
         }
     };
 
+    // حفظ المبيعات وتأكيدها في أودو
     const handleSaveSale = async (sale) => {
         const res = await callOdoo("sale.order", "create", [{
             'partner_id': parseInt(sale.customerId),
@@ -168,7 +169,7 @@ const App = () => {
 
         if (res?.result) {
             await callOdoo("sale.order", "action_confirm", [[res.result]]);
-            showSwal('تم تسجيل البيع');
+            showSwal('تم تسجيل المبيعات بنجاح');
             fetchAllFromOdoo();
         }
     };
@@ -193,11 +194,11 @@ const App = () => {
     return (
         <div className="app-container" style={{ direction: 'rtl' }}>
             <main className="main-content">{renderPage()}</main>
-            <nav className="bottom-nav">
-                <button className="nav-item" onClick={() => setActivePage('dashboard')}>الرئيسية</button>
-                <button className="nav-item" onClick={() => setActivePage('inventory')}>المخزن</button>
-                <button className="nav-item" onClick={() => setActivePage('purchases')}>العمليات</button>
-                <button className="nav-item" onClick={() => setActivePage('reports')}>التقارير</button>
+            <nav className="bottom-nav" style={{ display: 'flex', justifyContent: 'space-around', padding: '10px', background: '#fff', borderTop: '1px solid #ddd' }}>
+                <button className="nav-item" onClick={() => setActivePage('dashboard')}>🏠 الرئيسية</button>
+                <button className="nav-item" onClick={() => setActivePage('inventory')}>📦 المخزن</button>
+                <button className="nav-item" onClick={() => setActivePage('purchases')}>⚙️ العمليات</button>
+                <button className="nav-item" onClick={() => setActivePage('reports')}>📊 التقارير</button>
             </nav>
         </div>
     );
