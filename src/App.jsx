@@ -86,19 +86,16 @@ const App = () => {
                 })));
             }
 
-            // 2. جلب العملاء
-            const custRes = await callOdoo("res.partner", "search_read", [[["customer_rank", ">", 0]]], {
-                fields: ["name", "phone", "email"]
+            // 2. جلب العملاء والموردين
+            const partnersRes = await callOdoo("res.partner", "search_read", [[]], {
+                fields: ["name", "phone", "customer_rank", "supplier_rank"]
             });
-            if (custRes?.result) setCustomers(custRes.result);
+            if (partnersRes?.result) {
+                setCustomers(partnersRes.result.filter(p => p.customer_rank > 0));
+                setSuppliers(partnersRes.result.filter(p => p.supplier_rank > 0));
+            }
 
-            // 3. جلب الموردين
-            const suppRes = await callOdoo("res.partner", "search_read", [[["supplier_rank", ">", 0]]], {
-                fields: ["name", "phone", "debt"]
-            });
-            if (suppRes?.result) setSuppliers(suppRes.result);
-
-            // 4. جلب المبيعات
+            // 3. جلب المبيعات
             const salesRes = await callOdoo("sale.order", "search_read", [[]], {
                 fields: ["name", "partner_id", "amount_total", "date_order"]
             });
@@ -107,9 +104,8 @@ const App = () => {
                     id: s.id, productName: s.name, customerName: s.partner_id[1], total: s.amount_total, date: s.date_order
                 })));
             }
-
         } catch (error) {
-            console.error("Fetch All Error:", error);
+            console.error("Fetch Error:", error);
         }
     };
 
@@ -140,33 +136,72 @@ const App = () => {
         setCashBook(prev => [...prev, { ...entry, id: Date.now(), timestamp: new Date().toLocaleString() }]);
     };
 
-    // --- دوال الحفظ في أودو ---
+    // --- دوال الحفظ الذكية (ترسل البيانات وتحدث التطبيق فوراً) ---
+
     const handleSavePurchase = async (p) => {
-        await callOdoo("purchase.order", "create", [{ partner_id: p.supplierId, order_line: [] }]); 
-        setInventory(prev => [...prev, p]);
-        showSwal('تم مزامنة المشتريات مع أودو');
+        try {
+            const res = await callOdoo("purchase.order", "create", [{
+                'partner_id': p.supplierId,
+                'order_line': [[0, 0, {
+                    'product_id': p.productId,
+                    'product_qty': parseFloat(p.quantity),
+                    'price_unit': parseFloat(p.price),
+                    'name': p.productName || 'توريد مخزني'
+                }]]
+            }]);
+            if (res?.result) {
+                await callOdoo("purchase.order", "button_confirm", [[res.result]]);
+                showSwal('تم التوريد وتحديث مخزن أودو');
+                fetchAllFromOdoo(); 
+            }
+        } catch (e) { showSwal('خطأ في مزامنة المشتريات', 'error'); }
     };
 
     const handleSaveSale = async (sale) => {
-        setSalesData(prev => [...prev, sale]);
-        addCashEntry({ type: 'in', category: 'مبيعات', amount: parseFloat(sale.total || 0), description: `بيع: ${sale.productName}` });
-        showSwal('تم تسجيل المبيعات في أودو');
+        try {
+            const res = await callOdoo("sale.order", "create", [{
+                'partner_id': sale.customerId,
+                'order_line': [[0, 0, {
+                    'product_id': sale.productId,
+                    'product_uom_qty': parseFloat(sale.quantity),
+                    'price_unit': parseFloat(sale.price),
+                    'name': sale.productName
+                }]]
+            }]);
+            if (res?.result) {
+                await callOdoo("sale.order", "action_confirm", [[res.result]]);
+                addCashEntry({ type: 'in', category: 'مبيعات', amount: parseFloat(sale.total || 0), description: `بيع: ${sale.productName}` });
+                showSwal('تم تسجيل البيع في أودو');
+                fetchAllFromOdoo();
+            }
+        } catch (e) { showSwal('خطأ في تسجيل البيع', 'error'); }
     };
 
-    const handleSaveWaste = (wasteEntry) => {
+    const handleSaveWaste = async (wasteEntry) => {
         setWaste(prev => [...prev, wasteEntry]);
-        showSwal('تم تسجيل الهالك', 'warning');
+        // منطق الهالك يفضل ربطه بـ Inventory Adjustment في أودو
+        showSwal('تم تسجيل الهالك محلياً', 'warning');
     };
 
-    const handleSaveExpense = (expense) => {
-        setExpenses(prev => [...prev, expense]);
-        addCashEntry({ type: 'out', category: expense.category, amount: parseFloat(expense.amount || 0), description: expense.description });
+    const handleSaveExpense = async (expense) => {
+        try {
+            await callOdoo("hr.expense", "create", [{
+                'name': expense.description,
+                'unit_amount': parseFloat(expense.amount),
+                'product_id': 1, 
+                'date': new Date().toISOString().split('T')[0]
+            }]);
+            setExpenses(prev => [...prev, expense]);
+            addCashEntry({ type: 'out', category: expense.category, amount: parseFloat(expense.amount || 0), description: expense.description });
+            showSwal('تم تسجيل المصروف في أودو');
+        } catch (e) { console.error(e); }
     };
 
-    const handleSaveProduction = (production) => {
+    const handleSaveProduction = async (production) => {
         const totalUnits = (parseFloat(production.boxes) || 0) * (parseFloat(production.unitsPerBox) || 0);
         setProductionData(prev => [...prev, { ...production, totalUnits, id: Date.now() }]);
-        showSwal(`تم تسجيل الإنتاج في أودو`);
+        showSwal(`تم تسجيل الإنتاج (بانتظار مزامنة MRP)`);
+        fetchAllFromOdoo();
     };
 
     const handleAddSupplier = (supplier) => { setSuppliers(prev => [...prev, supplier]); };
@@ -202,9 +237,7 @@ const App = () => {
     ];
 
     const renderNavIcon = (iconType, isActive) => {
-        const fill = isActive ? '#1e5631' : 'none';
-        const stroke = isActive ? '#1e5631' : '#94a3b8';
-        const props = { width: 26, height: 26, viewBox: '0 0 24 24', fill, stroke, strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round' };
+        const props = { width: 26, height: 26, viewBox: '0 0 24 24', fill: isActive ? '#1e5631' : 'none', stroke: isActive ? '#1e5631' : '#94a3b8', strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round' };
         switch (iconType) {
             case 'home': return <svg {...props}><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>;
             case 'box': return <svg {...props}><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>;
