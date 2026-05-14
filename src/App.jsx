@@ -57,12 +57,12 @@ const App = () => {
 
     // --- سجلات البيانات الموحدة ---
     const [stock, setStock] = useState([]);
-    const [partners, setPartners] = useState([]); // قائمة موحدة (عملاء وموردين)
-    const [staff, setStaff] = useState([]);      // قائمة العمالة
+    const [partners, setPartners] = useState([]); 
+    const [staff, setStaff] = useState([]);      
 
-    // --- 1. جلب البيانات بتوافقية "التطبيق الواحد" ---
+    // --- 1. جلب البيانات بتوافقية المخزن الذكي ---
     const fetchAllFromOdoo = async () => {
-        // أ- جلب المنتجات والمخزون
+        // أ- جلب المنتجات والمخزون المتاح فعلياً
         const resProducts = await callOdoo("product.product", "search_read", [[]], { 
             fields: ["name", "qty_available", "list_price", "uom_id"] 
         });
@@ -77,20 +77,14 @@ const App = () => {
             })));
         }
 
-        // ب- جلب "جهات الاتصال" (شركاء العمل) - الحل الشامل للعمالة والموردين والعملاء
+        // ب- جلب جهات الاتصال (للموردين، العملاء، والعمالة)
         const resPartners = await callOdoo("res.partner", "search_read", [[]], { 
             fields: ["name", "mobile", "comment"] 
         });
 
         if (resPartners?.result) {
             const allData = resPartners.result;
-            
-            // توزيع ذكي:
-            // الموردين والعملاء نستخدم القائمة كاملة لتسهيل الاختيار
             setPartners(allData); 
-            
-            // العمالة: نفلتر من الملاحظات إذا كانت تحتوي على كلمة "عامل" أو "موظف"
-            // إذا لم يوجد ملاحظات، نعرض القائمة كاملة لإدارتها
             setStaff(allData);
         }
     };
@@ -118,18 +112,18 @@ const App = () => {
         }
     };
 
-    // --- 3. العمليات المخزنية الذكية (بديلة للمشتريات والمبيعات) ---
+    // --- 3. العمليات المخزنية المعتمدة على روابطك المرفقة ---
     
-    // التوريد (Incoming)
+    // التوريد (Incoming) - يعتمد على المعرف رقم 1 (تسلسل Nawahio)
     const handleSavePurchase = async (p) => {
-        showSwal('جاري تسجيل استلام مخزني...', 'info');
+        showSwal('جاري تسجيل استلام في تسلسل Nawahio...', 'info');
         const res = await callOdoo("stock.picking", "create", [{
             'partner_id': parseInt(p.supplierId),
-            'picking_type_id': 1, 
-            'location_id': 4,      
-            'location_dest_id': 8, 
+            'picking_type_id': 1, // المعرف المستخرج من الرابط الأول
+            'location_id': 4,     // موقع المورد الافتراضي
+            'location_dest_id': 8, // موقع المخزن الرئيسي (Stock)
             'move_ids_without_package': [[0, 0, {
-                'name': 'توريد: ' + p.productName,
+                'name': 'توريد ذكي: ' + p.productName,
                 'product_id': parseInt(p.productId),
                 'product_uom_qty': parseFloat(p.quantity),
                 'product_uom': 1,
@@ -139,22 +133,24 @@ const App = () => {
         }]);
 
         if (res?.result) {
+            // تأكيد العملية فوراً لجعل الكمية "منجزة" وتحديث الرصيد
+            await callOdoo("stock.picking", "action_confirm", [[res.result]]);
             await callOdoo("stock.picking", "button_validate", [[res.result]]);
-            showSwal('تم التوريد وتحديث المخزن');
+            showSwal('تم التوريد وتحديث المخزن بنجاح');
             fetchAllFromOdoo();
         }
     };
 
-    // المبيعات (Outgoing)
+    // المبيعات (Outgoing) - يعتمد على المعرف رقم 2 (التسلسل للخارج)
     const handleSaveSale = async (sale) => {
-        showSwal('جاري تسجيل صرف مخزني...', 'info');
+        showSwal('جاري تسجيل صرف من التسلسل للخارج...', 'info');
         const res = await callOdoo("stock.picking", "create", [{
             'partner_id': parseInt(sale.customerId),
-            'picking_type_id': 2, 
-            'location_id': 8,      
-            'location_dest_id': 9, 
+            'picking_type_id': 2, // المعرف المستخرج من الرابط الثاني
+            'location_id': 8,     // من المخزن الرئيسي
+            'location_dest_id': 9, // إلى موقع العميل
             'move_ids_without_package': [[0, 0, {
-                'name': 'بيع: ' + sale.productName,
+                'name': 'بيع ذكي: ' + sale.productName,
                 'product_id': parseInt(sale.productId),
                 'product_uom_qty': parseFloat(sale.quantity),
                 'product_uom': 1,
@@ -164,8 +160,9 @@ const App = () => {
         }]);
 
         if (res?.result) {
+            await callOdoo("stock.picking", "action_confirm", [[res.result]]);
             await callOdoo("stock.picking", "button_validate", [[res.result]]);
-            showSwal('تم الصرف وتحديث المخزن');
+            showSwal('تم الصرف وتحديث المخزن بنجاح');
             fetchAllFromOdoo();
         }
     };
