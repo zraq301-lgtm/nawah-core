@@ -16,12 +16,13 @@ import './App.css';
 const ODOO_BASE_URL = 'https://nawahio1.odoo.com';
 const ODOO_DB = 'nawahio1';
 
+// --- محرك الاتصال الذكي بأودو (JSON-RPC) ---
 const callOdoo = async (model, method, args = [[]], kwargs = {}) => {
     const url = `${ODOO_BASE_URL}/jsonrpc`;
     const uid = localStorage.getItem('odoo_uid');
     const password = localStorage.getItem('user_pass');
 
-    if (!uid || !password) return { error: { message: "بيانات تسجيل الدخول غير متوفرة" } };
+    if (!uid || !password) return { error: { message: "بيانات تسجيل الدخول مفقودة" } };
 
     const payload = {
         jsonrpc: "2.0",
@@ -35,28 +36,12 @@ const callOdoo = async (model, method, args = [[]], kwargs = {}) => {
     };
 
     try {
-        const options = {
+        const response = await CapacitorHttp.post({
             url: url,
             headers: { 'Content-Type': 'application/json' },
             data: payload
-        };
-
-        const response = await CapacitorHttp.post(options);
-        const responseData = response.data;
-
-        if (responseData.error) {
-            const errorMsg = responseData.error.data?.message || responseData.error.message;
-            // عرض تنبيه فقط إذا لم يكن الخطأ متوقعاً
-            if (!errorMsg.includes("doesn't exist")) {
-                Swal.fire({
-                    title: 'تنبيه من أودو',
-                    text: errorMsg,
-                    icon: 'info',
-                    confirmButtonText: 'مفهوم'
-                });
-            }
-        }
-        return responseData;
+        });
+        return response.data;
     } catch (err) {
         return { error: err };
     }
@@ -70,16 +55,14 @@ const App = () => {
     const [activePage, setActivePage] = useState('dashboard');
     const [isLoggedIn, setIsLoggedIn] = useState(false);
 
-    // States البيانات
+    // --- سجلات البيانات الموحدة ---
     const [stock, setStock] = useState([]);
-    const [salesData, setSalesData] = useState([]);
-    const [expenses, setExpenses] = useState([]);
-    const [suppliers, setSuppliers] = useState([]);
-    const [customers, setCustomers] = useState([]);
-    const [staff, setStaff] = useState([]);
+    const [partners, setPartners] = useState([]); // قائمة موحدة (عملاء وموردين)
+    const [staff, setStaff] = useState([]);      // قائمة العمالة
 
+    // --- 1. جلب البيانات بتوافقية "التطبيق الواحد" ---
     const fetchAllFromOdoo = async () => {
-        // 1. جلب المنتجات والمخزون
+        // أ- جلب المنتجات والمخزون
         const resProducts = await callOdoo("product.product", "search_read", [[]], { 
             fields: ["name", "qty_available", "list_price", "uom_id"] 
         });
@@ -94,23 +77,21 @@ const App = () => {
             })));
         }
 
-        // 2. جلب جهات الاتصال (حل مشكلة customer_rank)
-        // سنحاول جلب الحقول الأساسية أولاً
-        const resPartners = await callOdoo("res.partner", "search_read", [[["is_company", "=", true]]], {
-            fields: ["name", "customer_rank", "supplier_rank"]
+        // ب- جلب "جهات الاتصال" (شركاء العمل) - الحل الشامل للعمالة والموردين والعملاء
+        const resPartners = await callOdoo("res.partner", "search_read", [[]], { 
+            fields: ["name", "mobile", "comment"] 
         });
-        
+
         if (resPartners?.result) {
-            // إذا كانت النسخة تدعم الرتب (Rank)
-            setCustomers(resPartners.result.filter(p => (p.customer_rank || 0) > 0));
-            setSuppliers(resPartners.result.filter(p => (p.supplier_rank || 0) > 0));
-        } else {
-            // خطة بديلة: جلب كل جهات الاتصال إذا فشلت الرتب
-            const resFallback = await callOdoo("res.partner", "search_read", [[]], { fields: ["name"] });
-            if (resFallback?.result) {
-                setCustomers(resFallback.result);
-                setSuppliers(resFallback.result);
-            }
+            const allData = resPartners.result;
+            
+            // توزيع ذكي:
+            // الموردين والعملاء نستخدم القائمة كاملة لتسهيل الاختيار
+            setPartners(allData); 
+            
+            // العمالة: نفلتر من الملاحظات إذا كانت تحتوي على كلمة "عامل" أو "موظف"
+            // إذا لم يوجد ملاحظات، نعرض القائمة كاملة لإدارتها
+            setStaff(allData);
         }
     };
 
@@ -122,62 +103,87 @@ const App = () => {
         }
     }, []);
 
+    // --- 2. إدارة الأفراد (إضافة عمالة/موردين/عملاء) ---
+    const handleSavePartner = async (person) => {
+        showSwal('جاري الحفظ في أودو...', 'info');
+        const res = await callOdoo("res.partner", "create", [{
+            'name': person.name,
+            'mobile': person.phone || '',
+            'comment': person.note || 'تمت الإضافة عبر التطبيق'
+        }]);
+
+        if (res?.result) {
+            showSwal('تم الحفظ بنجاح');
+            fetchAllFromOdoo();
+        }
+    };
+
+    // --- 3. العمليات المخزنية الذكية (بديلة للمشتريات والمبيعات) ---
+    
+    // التوريد (Incoming)
+    const handleSavePurchase = async (p) => {
+        showSwal('جاري تسجيل استلام مخزني...', 'info');
+        const res = await callOdoo("stock.picking", "create", [{
+            'partner_id': parseInt(p.supplierId),
+            'picking_type_id': 1, 
+            'location_id': 4,      
+            'location_dest_id': 8, 
+            'move_ids_without_package': [[0, 0, {
+                'name': 'توريد: ' + p.productName,
+                'product_id': parseInt(p.productId),
+                'product_uom_qty': parseFloat(p.quantity),
+                'product_uom': 1,
+                'location_id': 4,
+                'location_dest_id': 8,
+            }]]
+        }]);
+
+        if (res?.result) {
+            await callOdoo("stock.picking", "button_validate", [[res.result]]);
+            showSwal('تم التوريد وتحديث المخزن');
+            fetchAllFromOdoo();
+        }
+    };
+
+    // المبيعات (Outgoing)
+    const handleSaveSale = async (sale) => {
+        showSwal('جاري تسجيل صرف مخزني...', 'info');
+        const res = await callOdoo("stock.picking", "create", [{
+            'partner_id': parseInt(sale.customerId),
+            'picking_type_id': 2, 
+            'location_id': 8,      
+            'location_dest_id': 9, 
+            'move_ids_without_package': [[0, 0, {
+                'name': 'بيع: ' + sale.productName,
+                'product_id': parseInt(sale.productId),
+                'product_uom_qty': parseFloat(sale.quantity),
+                'product_uom': 1,
+                'location_id': 8,
+                'location_dest_id': 9,
+            }]]
+        }]);
+
+        if (res?.result) {
+            await callOdoo("stock.picking", "button_validate", [[res.result]]);
+            showSwal('تم الصرف وتحديث المخزن');
+            fetchAllFromOdoo();
+        }
+    };
+
     const financialStats = useMemo(() => {
         const stockValue = stock.reduce((sum, s) => sum + (s.balance * s.price), 0);
         return { totalIncome: 0, totalExpenses: 0, cashBalance: 0, stockValue };
     }, [stock]);
-
-    // وظيفة المشتريات (معالجة خطأ الموديل غير الموجود)
-    const handleSavePurchase = async (p) => {
-        showSwal('جاري الإرسال لـ أودو...', 'info');
-        
-        const res = await callOdoo("purchase.order", "create", [{
-            'partner_id': parseInt(p.supplierId),
-            'order_line': [[0, 0, {
-                'product_id': parseInt(p.productId),
-                'product_qty': parseFloat(p.quantity),
-                'price_unit': parseFloat(p.price),
-                'name': p.productName || 'طلب من التطبيق'
-            }]]
-        }]);
-
-        if (res?.result) {
-            await callOdoo("purchase.order", "button_confirm", [[res.result]]);
-            showSwal('تم التوريد وتحديث أودو');
-            fetchAllFromOdoo();
-        } else if (res?.error?.data?.message?.includes("doesn't exist")) {
-            Swal.fire('خطأ في أودو', 'تطبيق "المشتريات" غير مثبت في نسخة أودو الخاصة بك', 'error');
-        }
-    };
-
-    // وظيفة المبيعات
-    const handleSaveSale = async (sale) => {
-        const res = await callOdoo("sale.order", "create", [{
-            'partner_id': parseInt(sale.customerId),
-            'order_line': [[0, 0, {
-                'product_id': parseInt(sale.productId),
-                'product_uom_qty': parseFloat(sale.quantity),
-                'price_unit': parseFloat(sale.price),
-                'name': sale.productName
-            }]]
-        }]);
-
-        if (res?.result) {
-            await callOdoo("sale.order", "action_confirm", [[res.result]]);
-            showSwal('تم تسجيل المبيعات بنجاح');
-            fetchAllFromOdoo();
-        }
-    };
 
     const renderPage = () => {
         const commonProps = { onBack: () => setActivePage('dashboard') };
         switch (activePage) {
             case 'dashboard': return <Dashboard setActivePage={setActivePage} stats={financialStats} />;
             case 'inventory': return <Inventory {...commonProps} categories={stock} setStock={setStock} />;
-            case 'purchases': return <PurchasesManager {...commonProps} stock={stock} suppliers={suppliers} onPurchaseComplete={handleSavePurchase} />;
-            case 'sales': return <Sales {...commonProps} onSaveSale={handleSaveSale} customers={customers} stock={stock} />;
+            case 'purchases': return <PurchasesManager {...commonProps} stock={stock} suppliers={partners} onPurchaseComplete={handleSavePurchase} />;
+            case 'sales': return <Sales {...commonProps} onSaveSale={handleSaveSale} customers={partners} stock={stock} />;
             case 'reports': return <Reports {...commonProps} stock={stock} />;
-            case 'staff': return <StaffManagement {...commonProps} staff={staff} setStaff={setStaff} />;
+            case 'staff': return <StaffManagement {...commonProps} staff={staff} onSaveStaff={handleSavePartner} />;
             case 'settings': return <Settings />;
             default: return <Dashboard setActivePage={setActivePage} stats={financialStats} />;
         }
@@ -192,6 +198,7 @@ const App = () => {
                 <button className={activePage === 'dashboard' ? 'active' : ''} onClick={() => setActivePage('dashboard')}>🏠 الرئيسية</button>
                 <button className={activePage === 'inventory' ? 'active' : ''} onClick={() => setActivePage('inventory')}>📦 المخزن</button>
                 <button className={activePage === 'purchases' ? 'active' : ''} onClick={() => setActivePage('purchases')}>⚙️ العمليات</button>
+                <button className={activePage === 'staff' ? 'active' : ''} onClick={() => setActivePage('staff')}>👥 الأفراد</button>
                 <button className={activePage === 'reports' ? 'active' : ''} onClick={() => setActivePage('reports')}>📊 التقارير</button>
             </nav>
         </div>
