@@ -22,16 +22,12 @@ import './App.css';
 const ODOO_BASE_URL = 'https://nawahio1.odoo.com';
 const ODOO_DB = 'nawahio1';
 
-/**
- * دالة الاتصال الرئيسية المحسنة مع نظام تنبيهات متطور للأخطاء
- */
 const callOdoo = async (model, method, args = [[]], kwargs = {}) => {
     const url = `${ODOO_BASE_URL}/jsonrpc`;
     const uid = localStorage.getItem('odoo_uid');
     const password = localStorage.getItem('user_pass');
 
     if (!uid || !password) {
-        // تم تعطيل Swal هنا لمنع ظهور رسالة الخطأ أثناء مرحلة التحقق الأولية في تسجيل الدخول
         return { error: { message: "بيانات تسجيل الدخول غير متوفرة" } };
     }
 
@@ -60,9 +56,7 @@ const callOdoo = async (model, method, args = [[]], kwargs = {}) => {
         const responseData = response.data;
 
         if (responseData.error) {
-            console.error("Odoo Logic Error:", responseData.error);
             const errorMsg = responseData.error.data?.message || responseData.error.message;
-            
             Swal.fire({
                 title: 'رفض أودو استلام البيانات',
                 text: `السبب: ${errorMsg}`,
@@ -73,7 +67,6 @@ const callOdoo = async (model, method, args = [[]], kwargs = {}) => {
         
         return responseData;
     } catch (err) {
-        console.error("Network/Capacitor Error:", err);
         Swal.fire({
             title: 'فشل الاتصال بالسيرفر',
             text: 'تأكد من تشغيل الإنترنت، وصحة رابط السيرفر nawahio1.odoo.com',
@@ -92,7 +85,7 @@ const App = () => {
     const [activePage, setActivePage] = useState('dashboard');
     const [isLoggedIn, setIsLoggedIn] = useState(false);
 
-    // States الأصلية
+    // States البيانات
     const [stock, setStock] = useState([]);
     const [salesData, setSalesData] = useState([]);
     const [inventory, setInventory] = useState([]);
@@ -104,16 +97,6 @@ const App = () => {
     const [cashBook, setCashBook] = useState([]);
     const [staff, setStaff] = useState([]);
 
-    const checkUserPermissions = async () => {
-        const models = ["product.template", "sale.order", "purchase.order"];
-        for (const m of models) {
-            const res = await callOdoo(m, "check_access_rights", ["read"], { raise_exception: false });
-            if (res?.error) {
-                console.warn(`نقص صلاحيات في موديل: ${m}`);
-            }
-        }
-    };
-
     const fetchAllFromOdoo = async () => {
         const resProducts = await callOdoo("product.template", "search_read", [[]], { 
             fields: ["name", "qty_available", "list_price", "uom_id"] 
@@ -121,11 +104,8 @@ const App = () => {
         
         if (resProducts?.result) {
             setStock(resProducts.result.map(i => ({
-                id: i.id, 
-                name: i.name, 
-                balance: i.qty_available || 0, 
-                price: i.list_price || 0, 
-                unit: i.uom_id ? i.uom_id[1] : 'وحدة'
+                id: i.id, name: i.name, balance: i.qty_available || 0, 
+                price: i.list_price || 0, unit: i.uom_id ? i.uom_id[1] : 'وحدة'
             })));
         }
 
@@ -139,30 +119,26 @@ const App = () => {
         }
     };
 
-    // المعالجة المطلوبة لمشكلة تسجيل الدخول
+    // --- المعالجة لضمان فتح التطبيق فوراً ---
     useEffect(() => {
-        const checkLoginStatus = () => {
+        const checkAuth = () => {
             const uid = localStorage.getItem('odoo_uid');
             if (uid && !isLoggedIn) {
                 setIsLoggedIn(true);
-                checkUserPermissions();
                 fetchAllFromOdoo();
                 return true;
             }
             return false;
         };
 
-        // فحص أولي
-        checkLoginStatus();
+        checkAuth(); // فحص عند التشغيل
 
-        // نظام فحص تلقائي كل ثانية لحل مشكلة التعليق في صفحة الدخول (الصورة Screenshot_٢٠٢٦٠٥١٣-١٩٣٨٣٤.png)
-        const loginWatcher = setInterval(() => {
-            if (checkLoginStatus()) {
-                clearInterval(loginWatcher); // توقف عن الفحص بمجرد النجاح
-            }
+        // مراقب ذكي (Watcher) يراقب الذاكرة كل ثانية لحل مشكلة التعليق في الصور المرفقة
+        const watcher = setInterval(() => {
+            if (checkAuth()) clearInterval(watcher);
         }, 1000);
 
-        return () => clearInterval(loginWatcher);
+        return () => clearInterval(watcher);
     }, [isLoggedIn]);
 
     const financialStats = useMemo(() => {
@@ -208,22 +184,15 @@ const App = () => {
         }
     };
 
-    const goHome = () => setActivePage('dashboard');
-
     const renderPage = () => {
-        const cp = { onBack: goHome };
+        const cp = { onBack: () => setActivePage('dashboard') };
         switch (activePage) {
             case 'dashboard': return <Dashboard setActivePage={setActivePage} stats={financialStats} />;
             case 'inventory': return <Inventory {...cp} categories={stock} setStock={setStock} onInventoryEntry={handleSavePurchase} />;
             case 'purchases': return <PurchasesManager {...cp} stock={stock} inventory={inventory} onPurchaseComplete={handleSavePurchase} />;
             case 'sales': return <Sales {...cp} onSaveSale={handleSaveSale} customers={customers} stock={stock} />;
-            case 'suppliers': return <Suppliers {...cp} suppliers={suppliers} onAddSupplier={() => {}} />;
-            case 'customers': return <Customers {...cp} customers={customers} onAddCustomer={() => {}} />;
             case 'reports': return <Reports {...cp} inventory={inventory} stock={stock} salesData={salesData} expenses={expenses} />;
             case 'settings': return <Settings />;
-            case 'waste': return <Waste {...cp} stock={stock} setWaste={setWaste} />;
-            case 'expenses': return <Expenses {...cp} setExpenses={setExpenses} />;
-            case 'production': return <ProductionManager {...cp} stock={stock} />;
             case 'staff': return <StaffManagement {...cp} staff={staff} setStaff={setStaff} />;
             default: return <Dashboard setActivePage={setActivePage} stats={financialStats} />;
         }
@@ -236,10 +205,10 @@ const App = () => {
             </main>
             
             <nav className="bottom-nav">
-                <button className={`nav-item ${activePage === 'dashboard' ? 'active' : ''}`} onClick={() => setActivePage('dashboard')}>🏠 الرئيسية</button>
-                <button className={`nav-item ${activePage === 'inventory' ? 'active' : ''}`} onClick={() => setActivePage('inventory')}>📦 المخزن</button>
-                <button className={`nav-item ${activePage === 'purchases' ? 'active' : ''}`} onClick={() => setActivePage('purchases')}>⚙️ العمليات</button>
-                <button className={`nav-item ${activePage === 'reports' ? 'active' : ''}`} onClick={() => setActivePage('reports')}>📊 التقارير</button>
+                <button className={activePage === 'dashboard' ? 'active' : ''} onClick={() => setActivePage('dashboard')}>🏠 الرئيسية</button>
+                <button className={activePage === 'inventory' ? 'active' : ''} onClick={() => setActivePage('inventory')}>📦 المخزن</button>
+                <button className={activePage === 'purchases' ? 'active' : ''} onClick={() => setActivePage('purchases')}>⚙️ العمليات</button>
+                <button className={activePage === 'reports' ? 'active' : ''} onClick={() => setActivePage('reports')}>📊 التقارير</button>
             </nav>
         </div>
     );
