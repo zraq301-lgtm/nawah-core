@@ -1,11 +1,8 @@
 import React, { useState } from 'react';
-import { CapacitorHttp } from '@capacitor/core';
-import Swal from 'sweetalert2';
+// استدعاء عميل سوبابيز الحقيقي والمعدل بالبيانات الصحيحة
+import { supabase } from '../config/supabase';
 
-const ODOO_BASE_URL = 'https://nawahio1.odoo.com';
-const ODOO_DB = 'nawahio1';
-
-const OdooDiagnostic = () => {
+const SupabaseDiagnostic = () => {
     const [logs, setLogs] = useState([]);
     const [status, setStatus] = useState('جاهز للفحص');
 
@@ -13,58 +10,54 @@ const OdooDiagnostic = () => {
         setLogs(prev => [{ time: new Date().toLocaleTimeString(), msg, data }, ...prev]);
     };
 
-    const callOdooRaw = async (model, method, args = [[]], kwargs = {}) => {
-        const uid = localStorage.getItem('odoo_uid');
-        const password = localStorage.getItem('user_pass');
-        
-        const payload = {
-            jsonrpc: "2.0",
-            method: "call",
-            params: {
-                service: "object",
-                method: "execute_kw",
-                args: [ODOO_DB, parseInt(uid), password, model, method, args, kwargs]
-            },
-            id: Math.random()
-        };
-
-        try {
-            const response = await CapacitorHttp.post({
-                url: `${ODOO_BASE_URL}/jsonrpc`,
-                headers: { 'Content-Type': 'application/json' },
-                data: payload
-            });
-            return response.data;
-        } catch (err) {
-            return { error: err.message };
-        }
-    };
-
     const runDiagnostic = async () => {
         setStatus('جاري الفحص...');
         setLogs([]);
-        addLog('--- بدء عملية الفحص الشامل ---');
+        addLog('--- بدء عملية الفحص الشامل لمنصة سوبابيز ---');
 
-        // 1. فحص أنواع العمليات (Picking Types)
-        addLog('1. جلب أنواع العمليات المتاحة...');
-        const types = await callOdooRaw("stock.picking.type", "search_read", [[["active", "=", true]]], { fields: ["id", "name", "display_name", "code"] });
-        addLog('نتيجة أنواع العمليات:', types);
+        try {
+            // 1. فحص الاتصال وجلب بيانات المستخدم الحالي
+            addLog('1. التحقق من جلسة المستخدم الحالي ومصادقة البيانات...');
+            const { data: { user }, error: userError } = await supabase.auth.getUser();
+            
+            if (userError) {
+                addLog('خطأ في جلب بيانات المستخدم:', userError);
+            } else {
+                addLog('تم التحقق من المستخدم الحالي بنجاح والمظهر العام له:', {
+                    id: user?.id,
+                    email: user?.email,
+                    role: user?.role
+                });
+            }
 
-        // 2. فحص المواقع (Locations)
-        addLog('2. جلب مواقع المخزن المتاحة...');
-        const locations = await callOdooRaw("stock.location", "search_read", [[["usage", "=", "internal"]]], { fields: ["id", "display_name"] });
-        addLog('نتيجة المواقع:', locations);
+            // 2. فحص جدول أنواع العمليات (picking_types) في قاعدة البيانات
+            addLog('2. جلب أنواع العمليات المتاحة من السيرفر...');
+            const { data: types, error: typesError } = await supabase
+                .from('picking_types') // تأكد من مطابقة اسم الجدول في قاعدة بياناتك
+                .select('id, name, display_name, code')
+                .eq('active', true);
 
-        // 3. تجربة إنشاء "مسودة" استلام (Dry Run)
-        if (types.result && locations.result) {
-            addLog('3. تجربة إنشاء مستند "مسودة" لاختبار الصلاحيات...');
-            const testDraft = await callOdooRaw("stock.picking", "create", [{
-                'picking_type_id': types.result[0].id,
-                'location_id': 4, // المورد
-                'location_dest_id': locations.result[0].id,
-                'origin': 'فحص التطبيق'
-            }]);
-            addLog('نتيجة تجربة الإنشاء:', testDraft);
+            if (typesError) {
+                addLog('خطأ أثناء جلب أنواع العمليات:', typesError);
+            } else {
+                addLog('نتيجة أنواع العمليات بنجاح:', types);
+            }
+
+            // 3. فحص جدول المواقع والمخازن (locations) في قاعدة البيانات
+            addLog('3. جلب مواقع المخزن المتاحة من السيرفر...');
+            const { data: locations, error: locationsError } = await supabase
+                .from('locations') // تأكد من مطابقة اسم الجدول في قاعدة بياناتك
+                .select('id, display_name')
+                .eq('usage', 'internal');
+
+            if (locationsError) {
+                addLog('خطأ أثناء جلب مواقع المخزن:', locationsError);
+            } else {
+                addLog('نتيجة المواقع المستلمة بنجاح:', locations);
+            }
+
+        } catch (err) {
+            addLog('حدث خطأ غير متوقع أثناء الفحص العام:', err.message);
         }
 
         setStatus('تم الفحص. راجع السجلات بالأسفل.');
@@ -72,12 +65,12 @@ const OdooDiagnostic = () => {
 
     return (
         <div style={{ padding: '20px', direction: 'rtl', backgroundColor: '#f4f7f6', minHeight: '100vh' }}>
-            <h2>🛠 وحدة تشخيص اتصال أودو</h2>
+            <h2>🛠 وحدة تشخيص اتصال سوبابيز (Supabase)</h2>
             <p>الحالة: <strong>{status}</strong></p>
             
             <button 
                 onClick={runDiagnostic}
-                style={{ padding: '15px 30px', backgroundColor: '#714B67', color: 'white', border: 'none', borderRadius: '8px', fontSize: '16px', cursor: 'pointer' }}
+                style={{ padding: '15px 30px', backgroundColor: '#4338ca', color: 'white', border: 'none', borderRadius: '8px', fontSize: '16px', cursor: 'pointer' }}
             >
                 ابدأ فحص التكليف والبيانات
             </button>
@@ -100,4 +93,4 @@ const OdooDiagnostic = () => {
     );
 };
 
-export default OdooDiagnostic;
+export default SupabaseDiagnostic;
