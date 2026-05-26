@@ -2,6 +2,9 @@ import React, { useState } from 'react';
 import { Package, Truck, Calendar, Hash, DollarSign, ArrowRight, Save, ShoppingCart, Bell, Table, AlertTriangle, User } from 'lucide-react';
 import DataGrid from './DataGrid';
 
+// --- استيراد كود خدمات المشتريات الخارجي بشكل مباشر لدعم المزامنة الفورية ---
+import { PurchaseService } from '../services.js';
+
 const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigger, inventory = [] }) => {
   const [activeView, setActiveView] = useState('menu');
   const [isNewItem, setIsNewItem] = useState(false);
@@ -49,8 +52,23 @@ const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigg
     });
   };
 
-  const handleSendToSuppliers = (e) => {
+  const handleSendToSuppliers = async (e) => {
     e.preventDefault();
+
+    // التوجيه السحابي: محاولة إرسال طلب الاحتياج عبر كود الخدمة أيضاً لمنع الفقد
+    try {
+      const tenantId = localStorage.getItem('tenantId') || 'default_tenant';
+      const idempotencyKey = `req-${Date.now()}`;
+      await PurchaseService.createPurchaseOrder(tenantId, {
+        item: orderRequest.item,
+        quantity: parseFloat(orderRequest.neededQty),
+        supplier: orderRequest.supplier || 'عام',
+        type: 'ERP_ORDER_REQUEST'
+      }, idempotencyKey);
+    } catch (err) {
+      console.warn("تنبيه مزامنة السحابة: سيتم الحفظ محلياً لعدم استجابة السيرفر المؤقتة.", err);
+    }
+
     if (onOrderTrigger) {
       onOrderTrigger({
         ...orderRequest,
@@ -64,7 +82,7 @@ const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigg
     setActiveView('menu');
   };
 
-  const handleSave = (e) => {
+  const handleSave = async (e) => {
     e.preventDefault();
     if (!formData.item || !formData.quantity || !formData.price) {
       alert("يرجى إكمال بيانات الفاتورة"); return;
@@ -80,6 +98,20 @@ const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigg
         supplier: formData.supplier || 'مورد عام'
       }
     };
+
+    // --- الربط المباشر مع كود الخدمة الخارجي لإرسال الفاتورة الحقيقية عبر الـ API ---
+    try {
+      const tenantId = localStorage.getItem('tenantId') || 'default_tenant';
+      const idempotencyKey = `pur-${purchaseWithBatch.id}`;
+      
+      // استدعاء الدالة السحابية من ملف الخدمات الخاص بك مباشرة
+      await PurchaseService.createPurchaseOrder(tenantId, purchaseWithBatch, idempotencyKey);
+      console.log("☁️ تم ربط ومزامنة الفاتورة بنجاح مع السيرفر الرئيسي الخارجي");
+    } catch (error) {
+      // التعامل الذكي مع حالة عدم وجود شبكة لضمان استقرار النظام على الهاتف
+      console.error("فشلت المزامنة السحابية المباشرة للفاتورة، جاري اعتماد النسخة المحلية:", error);
+    }
+
     onPurchaseComplete(purchaseWithBatch);
     alert(`تم الحفظ وإضافة شحنة جديدة للمخزن برقم ${purchaseWithBatch.batchInfo.batchId}`);
     setFormData({ item: '', unit: '', quantity: '', price: '', supplier: '', paymentMethod: 'كاش', date: new Date().toISOString().split('T')[0] });
