@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App.jsx";
 import LoginPage from "./components/LoginPage.jsx"; 
@@ -6,21 +6,10 @@ import "./index.css";
 import "./App.css";
 
 const RootComponent = () => {
-  // توحيد المسمى ليكون odoo_uid ليطابق ملف App.jsx
-  const [isAuthenticated, setIsAuthenticated] = useState(!!localStorage.getItem('odoo_uid'));
+  // قراءة حالة التوثيق مباشرة من التخزين المحلي باستخدام معرف سوبابيز الجديد
+  const [isAuthenticated, setIsAuthenticated] = useState(!!localStorage.getItem('supabase_uid'));
 
-  useEffect(() => {
-    const checkAuth = () => {
-      const uid = localStorage.getItem('odoo_uid');
-      if (uid) {
-        setIsAuthenticated(true);
-      }
-    };
-    // فحص دوري سريع للتأكد من استجابة الحالة
-    const interval = setInterval(checkAuth, 500);
-    return () => clearInterval(interval);
-  }, []);
-
+  // المكون يغير الحالة فوراً عند نجاح تسجيل الدخول دون الحاجة لفحص دوري
   return isAuthenticated ? (
     <App />
   ) : (
