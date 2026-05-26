@@ -1,0 +1,46 @@
+// 1. الإعدادات (هذا هو القسم الذي كان مفقوداً وسبب الخطأ)
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// 2. جداول المستخدمين والشركات
+model Company {
+  id        String   @id @default(uuid())
+  name      String
+  createdAt DateTime @default(now())
+  users     User[]
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  companyId String?
+  company   Company? @relation(fields: [companyId], references: [id])
+}
+
+// 3. جداول المشتريات (التي أرسلتها أنت للتو)
+model Purchase {
+  id              String   @id @default(uuid())
+  tenant_id       String
+  idempotency_key String   @unique 
+  total_amount    Float
+  status          String
+  items           Item[]
+  createdAt       DateTime @default(now())
+}
+
+model Item {
+  id          String   @id @default(uuid())
+  product_id  String
+  quantity    Int
+  unit_price  Float
+  purchaseId  String
+  purchase    Purchase @relation(fields: [purchaseId], references: [id])
+}
