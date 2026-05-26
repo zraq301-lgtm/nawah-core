@@ -8,6 +8,7 @@ import { PurchaseService } from '../services/PurchaseService.js';
 const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigger, inventory = [] }) => {
   const [activeView, setActiveView] = useState('menu');
   const [isNewItem, setIsNewItem] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false); // لمنع نقرات الموبايل المتكررة
   
   const [formData, setFormData] = useState({
     item: '', unit: '', quantity: '', price: '',
@@ -53,8 +54,13 @@ const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigg
   };
 
   const handleSendToSuppliers = async (e) => {
-    e.preventDefault();
+    if (e) e.preventDefault();
+    if (!orderRequest.item || !orderRequest.neededQty) {
+      alert("يرجى ملء بيانات طلب الاحتياج أولاً");
+      return;
+    }
 
+    setIsSubmitting(true);
     // التوجيه السحابي: محاولة إرسال طلب الاحتياج عبر كود الخدمة أيضاً لمنع الفقد
     try {
       const tenantId = localStorage.getItem('tenantId') || 'default_tenant';
@@ -79,17 +85,25 @@ const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigg
       });
     }
     alert(`تم إرسال طلب (${orderRequest.item}) للمورد (${orderRequest.supplier || 'عام'}) بنجاح`);
+    setIsSubmitting(false);
     setActiveView('menu');
   };
 
   const handleSave = async (e) => {
-    e.preventDefault();
+    if (e) e.preventDefault();
+    
+    // التحقق الصارم من البيانات المربوطة حديثاً
     if (!formData.item || !formData.quantity || !formData.price) {
-      alert("يرجى إكمال بيانات الفاتورة"); return;
+      alert("يرجى إكمال كافة بيانات الفاتورة الأساسية"); 
+      return;
     }
+
+    setIsSubmitting(true);
     const purchaseWithBatch = {
       ...formData,
-      total: formData.quantity * formData.price,
+      quantity: parseFloat(formData.quantity),
+      price: parseFloat(formData.price),
+      total: parseFloat(formData.quantity) * parseFloat(formData.price),
       id: Date.now(),
       batchInfo: {
         batchId: `B-${Date.now().toString().slice(-6)}`,
@@ -108,14 +122,16 @@ const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigg
       await PurchaseService.createPurchaseOrder(tenantId, purchaseWithBatch, idempotencyKey);
       console.log("☁️ تم ربط ومزامنة الفاتورة بنجاح مع السيرفر الرئيسي الخارجي");
     } catch (error) {
-      // التعامل الذكي مع حالة عدم وجود شبكة لضمان استقرار النظام على الهاتف
       console.error("فشلت المزامنة السحابية المباشرة للفاتورة، جاري اعتماد النسخة المحلية:", error);
     }
 
     onPurchaseComplete(purchaseWithBatch);
     alert(`تم الحفظ وإضافة شحنة جديدة للمخزن برقم ${purchaseWithBatch.batchInfo.batchId}`);
+    
+    // إعادة تعيين الحقول والجهات
     setFormData({ item: '', unit: '', quantity: '', price: '', supplier: '', paymentMethod: 'كاش', date: new Date().toISOString().split('T')[0] });
     setIsNewItem(false);
+    setIsSubmitting(false);
     setActiveView('menu');
   };
 
@@ -132,7 +148,7 @@ const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigg
   return (
     <div style={{ padding: '15px', direction: 'rtl', fontFamily: "'Tajawal', sans-serif", minHeight: '100vh', position: 'relative' }}>
       
-      {/* تنبيه انخفاض المخزن - يظهر فقط عند وجود أصناف أقل من 20 */}
+      {/* تنبيه انخفاض المخزن */}
       {lowStockItems.length > 0 && (
         <div style={{ 
           background: '#fee2e2', 
@@ -203,7 +219,7 @@ const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigg
           </div>
           <form onSubmit={handleSendToSuppliers}>
             <label className="form-label">الصنف المطلوب</label>
-            <select className="glass-input" required onChange={e => handleItemSelectForOrder(e.target.value)} style={{ marginBottom: '12px', width: '100%', padding: '8px', borderRadius: '8px' }}>
+            <select className="glass-input" required value={orderRequest.item} onChange={e => handleItemSelectForOrder(e.target.value)} style={{ marginBottom: '12px', width: '100%', padding: '8px', borderRadius: '8px' }}>
               <option value="">اختر صنف من المخزن...</option>
               {stock.map(s => <option key={s.id} value={s.name}>{s.name} (المتاح: {s.balance})</option>)}
             </select>
@@ -220,9 +236,12 @@ const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigg
             <label className="form-label">الكمية المطلوبة</label>
             <input type="number" className="glass-input" required placeholder="الكمية المطلوبة" value={orderRequest.neededQty} onChange={e => setOrderRequest({ ...orderRequest, neededQty: e.target.value })} style={{ marginBottom: '20px', width: '100%', padding: '8px', borderRadius: '8px' }} />
             
-            {/* زر الإرسال المحدث سحابياً */}
-            <button type="submit" className="btn-primary" style={{ backgroundColor: '#f59e0b', width: '100%', padding: '12px', borderRadius: '10px', color: '#fff', border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '1rem', fontWeight: 'bold', cursor: 'pointer' }}>
-              <Truck size={20} /> إرسال الطلب عبر السحابة
+            <button 
+              type="button" 
+              onClick={handleSendToSuppliers}
+              disabled={isSubmitting}
+              style={{ backgroundColor: '#f59e0b', width: '100%', padding: '12px', borderRadius: '10px', color: '#fff', border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '1rem', fontWeight: 'bold', cursor: 'pointer', opacity: isSubmitting ? 0.7 : 1 }}>
+              <Truck size={20} /> {isSubmitting ? 'جاري الإرسال سحابياً...' : 'إرسال الطلب عبر السحابة'}
             </button>
           </form>
         </div>
@@ -247,6 +266,7 @@ const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigg
             )}
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+              {/* تـم الإصلاح: إدخال خواص value و onChange لربط البيانات بالـ State */}
               <input className="glass-input" placeholder="الوحدة" value={formData.unit} onChange={e => setFormData({ ...formData, unit: e.target.value })} style={{ width: '100%', padding: '8px', borderRadius: '8px' }} />
               <input type="number" className="glass-input" placeholder="الكمية" required value={formData.quantity} onChange={e => setFormData({ ...formData, quantity: e.target.value })} style={{ width: '100%', padding: '8px', borderRadius: '8px' }} />
             </div>
@@ -260,9 +280,12 @@ const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigg
             <label className="form-label" style={{ marginTop: '10px' }}>اسم المورد</label>
             <input className="glass-input" placeholder="اسم المورد" value={formData.supplier} onChange={e => setFormData({ ...formData, supplier: e.target.value })} style={{ marginBottom: '20px', width: '100%', padding: '8px', borderRadius: '8px' }} />
             
-            {/* زر الحفظ والمزامنة المحدث */}
-            <button type="submit" className="btn-primary" style={{ backgroundColor: '#1e5631', width: '100%', padding: '12px', borderRadius: '10px', color: '#fff', border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '1rem', fontWeight: 'bold', cursor: 'pointer' }}>
-              <Save size={20} /> حفظ ومزامنة الفاتورة
+            <button 
+              type="button" 
+              onClick={handleSave}
+              disabled={isSubmitting}
+              style={{ backgroundColor: '#1e5631', width: '100%', padding: '12px', borderRadius: '10px', color: '#fff', border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '1rem', fontWeight: 'bold', cursor: 'pointer', opacity: isSubmitting ? 0.7 : 1 }}>
+              <Save size={20} /> {isSubmitting ? 'جاري الحفظ والمزامنة...' : 'حفظ ومزامنة الفاتورة'}
             </button>
           </form>
         </div>
