@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { loginToOdoo } from '../services/odooApi';
+// الربط بالمسار الجديد لـ سوبابيز بناءً على طلبك
+import { supabase } from '../services/supabaseClient';
 
 const LoginPage = ({ onLoginSuccess }) => {
   const [formData, setFormData] = useState({ email: '', password: '' });
@@ -10,31 +11,36 @@ const LoginPage = ({ onLoginSuccess }) => {
     setStatus({ loading: true, error: '' });
 
     try {
-      const result = await loginToOdoo(formData.email, formData.password);
+      // تسجيل الدخول باستخدام مكتبة سوبابيز الرسمية المدمجة
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: formData.email,
+        password: formData.password,
+      });
 
-      if (result.success) {
-        // حفظ البيانات بالمسميات الموحدة التي يحتاجها App.jsx
-        localStorage.setItem('odoo_uid', result.uid);
-        localStorage.setItem('user_email', formData.email);
-        localStorage.setItem('user_pass', formData.password);
-        
-        // إيقاف حالة التحميل
-        setStatus({ loading: false, error: '' });
-
-        // إخطار المكون الرئيسي (main.jsx) بالنجاح لتبديل الواجهة فوراً
-        if (onLoginSuccess) {
-          onLoginSuccess();
-        }
-      } else {
+      if (error) {
         setStatus({ 
           loading: false, 
-          error: result.error || "خطأ في البريد الإلكتروني أو كلمة المرور" 
+          error: error.message || "خطأ في البريد الإلكتروني أو كلمة المرور" 
         });
+        return;
+      }
+
+      // في حال النجاح، نقوم بحفظ البيانات الموحدة التي يحتاجها App.jsx
+      // سوبابيز توفر معرف فريد للمستخدم داخل كائن user واسمه id
+      localStorage.setItem('supabase_uid', data.user.id);
+      localStorage.setItem('user_email', formData.email);
+      
+      // إيقاف حالة التحميل
+      setStatus({ loading: false, error: '' });
+
+      // إخطار المكون الرئيسي بالنجاح لتبديل الواجهة فوراً
+      if (onLoginSuccess) {
+        onLoginSuccess();
       }
     } catch (err) {
       setStatus({ 
         loading: false, 
-        error: "تعذر الاتصال بسيرفر أودو، تأكد من الإنترنت" 
+        error: "تعذر الاتصال بسيرفر سوبابيز، تأكد من الإنترنت" 
       });
     }
   };
@@ -54,12 +60,12 @@ const LoginPage = ({ onLoginSuccess }) => {
 
         <form onSubmit={handleSubmit} className="space-y-6">
           <div className="space-y-2">
-            <label className="text-sm text-gray-300 mr-2 block text-right">بريد أودو الإلكتروني</label>
+            <label className="text-sm text-gray-300 mr-2 block text-right">البريد الإلكتروني</label>
             <input
               type="email"
               required
               className="w-full p-4 bg-white/5 border border-white/10 rounded-2xl text-white outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all text-right"
-              placeholder="example@nawahio1.com"
+              placeholder="example@domain.com"
               value={formData.email}
               onChange={(e) => setFormData({...formData, email: e.target.value})}
             />
@@ -101,12 +107,12 @@ const LoginPage = ({ onLoginSuccess }) => {
         </form>
 
         <p className="mt-8 text-center text-gray-400 text-xs">
-          متصل بـ: nawahio1.odoo.com
+          مؤمن ومستضاف بواسطة سوبابيز
         </p>
       </div>
     </div>
   );
 };
 
-// هذا السطر هو الأهم لحل خطأ الـ Build في ملف main.jsx
+// التصدير الافتراضي لحل مشكلة الـ Build
 export default LoginPage;
