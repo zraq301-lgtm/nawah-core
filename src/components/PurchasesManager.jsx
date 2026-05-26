@@ -198,12 +198,12 @@ const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigg
       {activeView === 'orderRequest' && (
         <div className="glass-card">
           <div className="page-header">
-            <button onClick={() => setActiveView('menu')} style={{ border: 'none', background: 'none' }}><ArrowRight size={20} /></button>
+            <button onClick={() => setActiveView('menu')} style={{ border: 'none', background: 'none', padding: 0, cursor: 'pointer' }}><ArrowRight size={20} /></button>
             <h3 style={{ margin: 0 }}>طلب احتياج من مورد</h3>
           </div>
           <form onSubmit={handleSendToSuppliers}>
             <label className="form-label">الصنف المطلوب</label>
-            <select className="glass-input" required onChange={e => handleItemSelectForOrder(e.target.value)} style={{ marginBottom: '12px' }}>
+            <select className="glass-input" required onChange={e => handleItemSelectForOrder(e.target.value)} style={{ marginBottom: '12px', width: '100%', padding: '8px', borderRadius: '8px' }}>
               <option value="">اختر صنف من المخزن...</option>
               {stock.map(s => <option key={s.id} value={s.name}>{s.name} (المتاح: {s.balance})</option>)}
             </select>
@@ -214,13 +214,16 @@ const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigg
               placeholder="اسم المورد الموجه له الطلب" 
               value={orderRequest.supplier} 
               onChange={e => setOrderRequest({...orderRequest, supplier: e.target.value})}
-              style={{ marginBottom: '12px' }}
+              style={{ marginBottom: '12px', width: '100%', padding: '8px', borderRadius: '8px' }}
             />
 
             <label className="form-label">الكمية المطلوبة</label>
-            <input type="number" className="glass-input" required placeholder="الكمية المطلوبة" value={orderRequest.neededQty} onChange={e => setOrderRequest({ ...orderRequest, neededQty: e.target.value })} style={{ marginBottom: '15px' }} />
+            <input type="number" className="glass-input" required placeholder="الكمية المطلوبة" value={orderRequest.neededQty} onChange={e => setOrderRequest({ ...orderRequest, neededQty: e.target.value })} style={{ marginBottom: '20px', width: '100%', padding: '8px', borderRadius: '8px' }} />
             
-            <button type="submit" className="btn-primary" style={{ backgroundColor: '#f59e0b' }}><Truck size={20} /> إرسال الطلب</button>
+            {/* زر الإرسال المحدث سحابياً */}
+            <button type="submit" className="btn-primary" style={{ backgroundColor: '#f59e0b', width: '100%', padding: '12px', borderRadius: '10px', color: '#fff', border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '1rem', fontWeight: 'bold', cursor: 'pointer' }}>
+              <Truck size={20} /> إرسال الطلب عبر السحابة
+            </button>
           </form>
         </div>
       )}
@@ -228,36 +231,39 @@ const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigg
       {activeView === 'entry' && (
         <div className="glass-card">
           <div className="page-header">
-            <button onClick={() => setActiveView('menu')} style={{ border: 'none', background: 'none' }}><ArrowRight size={20} /></button>
+            <button onClick={() => setActiveView('menu')} style={{ border: 'none', background: 'none', padding: 0, cursor: 'pointer' }}><ArrowRight size={20} /></button>
             <h3 style={{ margin: 0 }}>فاتورة شراء جديدة</h3>
           </div>
           <form onSubmit={handleSave}>
             <label className="form-label">اسم الصنف</label>
             {!isNewItem ? (
-              <select className="glass-input" required value={formData.item} onChange={e => handleExistingItemSelect(e.target.value)} style={{ marginBottom: '10px' }}>
+              <select className="glass-input" required value={formData.item} onChange={e => handleExistingItemSelect(e.target.value)} style={{ marginBottom: '10px', width: '100%', padding: '8px', borderRadius: '8px' }}>
                 <option value="">اختر من المخزن...</option>
                 {stock.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
                 <option value="NEW_ITEM" style={{fontWeight: 'bold'}}>+ إضافة صنف جديد</option>
               </select>
             ) : (
-              <input className="glass-input" placeholder="اسم الصنف الجديد" required value={formData.item} onChange={e => setFormData({ ...formData, item: e.target.value })} style={{ marginBottom: '10px' }} />
+              <input className="glass-input" placeholder="اسم الصنف الجديد" required value={formData.item} onChange={e => setFormData({ ...formData, item: e.target.value })} style={{ marginBottom: '10px', width: '100%', padding: '8px', borderRadius: '8px' }} />
             )}
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-              <input className="glass-input" placeholder="الوحدة" value={formData.unit} onChange={e => setFormData({ ...formData, unit: e.target.value })} />
-              <input type="number" className="glass-input" placeholder="الكمية" required value={formData.quantity} onChange={e => setFormData({ ...formData, quantity: e.target.value })} />
+              <input className="glass-input" placeholder="الوحدة" value={formData.unit} onChange={e => setFormData({ ...formData, unit: e.target.value })} style={{ width: '100%', padding: '8px', borderRadius: '8px' }} />
+              <input type="number" className="glass-input" placeholder="الكمية" required value={formData.quantity} onChange={e => setFormData({ ...formData, quantity: e.target.value })} style={{ width: '100%', padding: '8px', borderRadius: '8px' }} />
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginTop: '10px' }}>
-              <input type="number" className="glass-input" placeholder="السعر" required value={formData.price} onChange={e => setFormData({ ...formData, price: e.target.value })} />
-              <select className="glass-input" value={formData.paymentMethod} onChange={e => setFormData({ ...formData, paymentMethod: e.target.value })}>
+              <input type="number" className="glass-input" placeholder="السعر" required value={formData.price} onChange={e => setFormData({ ...formData, price: e.target.value })} style={{ width: '100%', padding: '8px', borderRadius: '8px' }} />
+              <select className="glass-input" value={formData.paymentMethod} onChange={e => setFormData({ ...formData, paymentMethod: e.target.value })} style={{ width: '100%', padding: '8px', borderRadius: '8px' }}>
                 <option value="كاش">كاش</option>
                 <option value="آجل">آجل</option>
               </select>
             </div>
             <label className="form-label" style={{ marginTop: '10px' }}>اسم المورد</label>
-            <input className="glass-input" placeholder="اسم المورد" value={formData.supplier} onChange={e => setFormData({ ...formData, supplier: e.target.value })} />
+            <input className="glass-input" placeholder="اسم المورد" value={formData.supplier} onChange={e => setFormData({ ...formData, supplier: e.target.value })} style={{ marginBottom: '20px', width: '100%', padding: '8px', borderRadius: '8px' }} />
             
-            <button type="submit" className="btn-primary" style={{ marginTop: '15px' }}><Save size={20} /> حفظ الفاتورة</button>
+            {/* زر الحفظ والمزامنة المحدث */}
+            <button type="submit" className="btn-primary" style={{ backgroundColor: '#1e5631', width: '100%', padding: '12px', borderRadius: '10px', color: '#fff', border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '1rem', fontWeight: 'bold', cursor: 'pointer' }}>
+              <Save size={20} /> حفظ ومزامنة الفاتورة
+            </button>
           </form>
         </div>
       )}
@@ -265,7 +271,7 @@ const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigg
       {activeView === 'grid' && (
         <div className="glass-card">
           <div className="page-header">
-            <button onClick={() => setActiveView('menu')} style={{ border: 'none', background: 'none' }}><ArrowRight size={20} /></button>
+            <button onClick={() => setActiveView('menu')} style={{ border: 'none', background: 'none', padding: 0, cursor: 'pointer' }}><ArrowRight size={20} /></button>
             <h3 style={{ margin: 0 }}>سجل الفواتير</h3>
           </div>
           <DataGrid columns={purchaseColumns} data={inventory} exportFileName="سجل_المشتريات" />
