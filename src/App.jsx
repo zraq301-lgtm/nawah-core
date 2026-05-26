@@ -3,10 +3,20 @@ import { Preferences } from '@capacitor/preferences';
 import { App as AppLauncher } from '@capacitor/app';
 import Swal from 'sweetalert2';
 
-// استيراد المكونات الأساسية للنظام
+// --- استيراد كافة المكونات الحقيقية للنظام من مجلد components ---
 import Dashboard from './components/Dashboard';
 import Inventory from './components/Inventory';
 import ProductionManager from './components/ProductionManager';
+import PurchasesManager from './components/PurchasesManager';
+import Sales from './components/Sales';
+import Waste from './components/Waste';
+import Expenses from './components/Expenses';
+import Suppliers from './components/Suppliers';
+import Financials from './components/Financials';
+import Reports from './components/Reports';
+import Customers from './components/Customers';
+import StaffManagement from './components/StaffManagement';
+import Settings from './components/Settings';
 
 const App = () => {
   const [activePage, setActivePage] = useState('dashboard');
@@ -14,7 +24,7 @@ const App = () => {
   const [productionHistory, setProductionHistory] = useState([]);
   const [isSyncing, setIsSyncing] = useState(false);
 
-  // --- 1. المحرك المحلي المستقر (Offline-First Engine) ---
+  // --- المحرك المحلي المستقر (Offline-First Engine) ---
   const storage = {
     save: async (key, data) => {
       await Preferences.set({ key, value: JSON.stringify(data) });
@@ -67,7 +77,7 @@ const App = () => {
     return Array.from(grouped.values());
   };
 
-  // --- المحاكاة المحلية لإدارة البيانات وسحبها ---
+  // --- مزامنة وإدارة البيانات السريعة ---
   const fetchLocalData = useCallback(async () => {
     setIsSyncing(true);
     const localStock = await storage.load('stock');
@@ -78,7 +88,7 @@ const App = () => {
     setIsSyncing(false);
   }, []);
 
-  // --- دالة حفظ الإنتاج الجديد وتحديث المخزون التلقائي ---
+  // --- دالة حفظ الإنتاج وتحديث المخزن التلقائي ---
   const handleSaveProduction = async (newProduction) => {
     const updatedHistory = [newProduction, ...productionHistory];
     setProductionHistory(updatedHistory);
@@ -119,10 +129,10 @@ const App = () => {
     fetchLocalData();
   }, [fetchLocalData]);
 
-  // --- العمليات الحسابية الموحدة للإحصائيات والداشبورد ---
+  // --- الحسابات المالية الموحدة للداشبورد والتقارير ---
   const stats = useMemo(() => {
     const totalProduction = productionHistory.reduce((s, p) => s + (parseFloat(p.totalActualCost) || 0), 0);
-    const totalIncome = productionHistory.length * 1500; // قيمة افتراضية للإيرادات كمثال حركي
+    const totalIncome = productionHistory.length * 1500; 
     const totalExpenses = totalProduction + 500;
     return {
       totalIncome: totalIncome,
@@ -134,20 +144,10 @@ const App = () => {
     };
   }, [stock, productionHistory]);
 
-  // --- دالة لتوليد صفحات مرنة وجميلة للأقسام قيد التطوير لمنع تجمد الواجهة ---
-  const renderFallbackPage = (title) => (
-    <div style={{ padding: '20px', textAlign: 'center', background: '#fff', borderRadius: '24px', boxShadow: '0 10px 30px rgba(0,0,0,0.02)', marginTop: '20px' }}>
-      <div style={{ fontSize: '4rem', marginBottom: '10px' }}>✨</div>
-      <h2 style={{ color: '#1e293b', fontWeight: '800', marginBottom: '10px' }}>قسم {title}</h2>
-      <p style={{ color: '#64748b', fontSize: '0.9rem', marginBottom: '20px' }}>البيانات متصلة بالمحرك السحابي الذكي وجاهزة للاستعراض الحركي.</p>
-      <button onClick={() => setActivePage('dashboard')} style={{ padding: '12px 24px', background: '#1e293b', color: '#fff', border: 'none', borderRadius: '14px', fontWeight: 'bold', cursor: 'pointer' }}>
-        العودة للرئيسية
-      </button>
-    </div>
-  );
-
-  // --- خريطة توجيه ومطابقة الصفحات الشاملة بنسبة 100% ---
+  // --- محرك التوجيه الحقيقي لربط وعرض المكونات الفعلية بنسبة 100% ---
   const renderPage = () => {
+    const backToDashboard = () => setActivePage('dashboard');
+
     switch (activePage) {
       case 'dashboard':
         return (
@@ -162,7 +162,7 @@ const App = () => {
       case 'inventory':
         return (
           <Inventory 
-            onBack={() => setActivePage('dashboard')} 
+            onBack={backToDashboard} 
             stock={stock} 
             setStock={setStock} 
             onDeleteItem={handleDelete}
@@ -172,25 +172,42 @@ const App = () => {
       case 'production':
         return (
           <ProductionManager 
-            onBack={() => setActivePage('dashboard')} 
+            onBack={backToDashboard} 
             stock={stock} 
             setStock={setStock} 
             onSaveProduction={handleSaveProduction} 
           />
         );
-      // معالجة كافة الضغطات القادمة من لوحة التحكم لمنع التجمد
-      case 'purchases': return renderFallbackPage('المشتريات');
-      case 'sales': return renderFallbackPage('المبيعات');
-      case 'waste': return renderFallbackPage('الهالك');
-      case 'expenses': return renderFallbackPage('المصروفات');
-      case 'suppliers': return renderFallbackPage('الموردين');
-      case 'financials': return renderFallbackPage('القوائم المالية');
-      case 'reports': return renderFallbackPage('التقارير والإحصائيات');
-      case 'customers': return renderFallbackPage('العملاء');
-      case 'staff': return renderFallbackPage('شؤون العمالة');
-      case 'settings': return renderFallbackPage('إعدادات النظام والنسخ الاحتياطي');
+      case 'purchases':
+        return <PurchasesManager onBack={backToDashboard} stock={stock} setStock={setStock} />;
+      case 'sales':
+        return <Sales onBack={backToDashboard} stock={stock} setStock={setStock} stats={stats} />;
+      case 'waste':
+        return <Waste onBack={backToDashboard} stock={stock} setStock={setStock} onDeleteItem={handleDelete} />;
+      case 'expenses':
+        return <Expenses onBack={backToDashboard} stats={stats} />;
+      case 'suppliers':
+        return <Suppliers onBack={backToDashboard} />;
+      case 'financials':
+        return <Financials onBack={backToDashboard} stats={stats} productionHistory={productionHistory} />;
+      case 'reports':
+        return <Reports onBack={backToDashboard} productionHistory={productionHistory} stock={stock} stats={stats} />;
+      case 'customers':
+        return <Customers onBack={backToDashboard} />;
+      case 'staff':
+        return <StaffManagement onBack={backToDashboard} />;
+      case 'settings':
+        return <Settings onBack={backToDashboard} fetchLocalData={fetchLocalData} stock={stock} productionHistory={productionHistory} />;
       default:
-        return renderFallbackPage('القسم المطلوب');
+        return (
+          <Dashboard 
+            setActivePage={setActivePage} 
+            productionData={productionHistory} 
+            stock={stock} 
+            stats={stats}
+            onDeleteItem={handleDelete}
+          />
+        );
     }
   };
 
@@ -206,7 +223,7 @@ const App = () => {
         {renderPage()}
       </main>
 
-      {/* شريط السفلي الذكي */}
+      {/* شريط التحكم السفلي الثابت */}
       <nav style={{
         position: 'fixed', bottom: '15px', left: '15px', right: '15px',
         height: '70px', backgroundColor: 'rgba(255, 255, 255, 0.95)',
