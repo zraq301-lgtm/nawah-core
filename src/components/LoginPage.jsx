@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-// الربط بالمسار الجديد لـ سوبابيز بناءً على طلبك
-import { supabase } from '../services/supabaseClient';
+// التعديل الصحيح: استدعاء دالة تسجيل الدخول المخصصة من الـ services
+import { loginToSupabase } from '../services/supabaseClient';
 
 const LoginPage = ({ onLoginSuccess }) => {
   const [formData, setFormData] = useState({ email: '', password: '' });
@@ -11,23 +11,19 @@ const LoginPage = ({ onLoginSuccess }) => {
     setStatus({ loading: true, error: '' });
 
     try {
-      // تسجيل الدخول باستخدام مكتبة سوبابيز الرسمية المدمجة
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email: formData.email,
-        password: formData.password,
-      });
+      // استخدام الدالة المخصصة التي تتعامل مع الـ SDK المستورد من الـ config
+      const result = await loginToSupabase(formData.email, formData.password);
 
-      if (error) {
+      if (!result.success) {
         setStatus({ 
           loading: false, 
-          error: error.message || "خطأ في البريد الإلكتروني أو كلمة المرور" 
+          error: result.error || "خطأ في البريد الإلكتروني أو كلمة المرور" 
         });
         return;
       }
 
-      // في حال النجاح، نقوم بحفظ البيانات الموحدة التي يحتاجها App.jsx
-      // سوبابيز توفر معرف فريد للمستخدم داخل كائن user واسمه id
-      localStorage.setItem('supabase_uid', data.user.id);
+      // في حال النجاح، نقوم بحفظ البيانات الموحدة
+      localStorage.setItem('supabase_uid', result.user.id);
       localStorage.setItem('user_email', formData.email);
       
       // إيقاف حالة التحميل
