@@ -29,6 +29,9 @@ jobs:
           # تم حذف سطر الكاش نهائياً لمنع الخطأ الحالي
           
       - name: 4. Build Web Project
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
         run: |
           npm install --legacy-peer-deps
           npm run build
