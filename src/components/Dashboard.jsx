@@ -16,18 +16,19 @@ const Dashboard = ({
 }) => {
   const [isAiLoading, setIsAiLoading] = useState(false);
 
+  // تم تعديل المعرفات (id) لتتطابق تماماً مع نظام توجيه الصفحات الفعلي في App.jsx لتعمل فوراً باللمس
   const sections = [
-    { id: 'PurchasesManager', title: 'المشتريات', icon: <ShoppingCart size={28}/>, color: '#e67e22' },
-    { id: 'Sales', title: 'المبيعات', icon: <Tag size={28}/>, color: '#2ecc71' },
-    { id: 'ProductionManager', title: 'الإنتاج', icon: <Factory size={28}/>, color: '#f59e0b' },
-    { id: 'Inventory', title: 'المخزن', icon: <Warehouse size={28}/>, color: '#3498db' },
-    { id: 'Waste', title: 'الهالك', icon: <Trash2 size={28}/>, color: '#e74c3c' },
-    { id: 'Expenses', title: 'المصروفات', icon: <Wallet size={28}/>, color: '#7f8c8d' },
-    { id: 'Suppliers', title: 'الموردين', icon: <Truck size={28}/>, color: '#34495e' },
-    { id: 'Financials', title: 'قوائم مالية', icon: <BarChart3 size={28}/>, color: '#16a085' },
-    { id: 'Reports', title: 'التقارير', icon: <FileText size={28}/>, color: '#2980b9' },
-    { id: 'Customers', title: 'العملاء', icon: <Users size={28}/>, color: '#27ae60' },
-    { id: 'StaffManagement', title: 'العمالة', icon: <UserCheck size={28}/>, color: '#0ea5e9' },
+    { id: 'purchases', title: 'المشتريات', icon: <ShoppingCart size={28}/>, color: '#e67e22' },
+    { id: 'sales', title: 'المبيعات', icon: <Tag size={28}/>, color: '#2ecc71' },
+    { id: 'production', title: 'الإنتاج', icon: <Factory size={28}/>, color: '#f59e0b' },
+    { id: 'inventory', title: 'المخزن', icon: <Warehouse size={28}/>, color: '#3498db' },
+    { id: 'waste', title: 'الهالك', icon: <Trash2 size={28}/>, color: '#e74c3c' },
+    { id: 'expenses', title: 'المصروفات', icon: <Wallet size={28}/>, color: '#7f8c8d' },
+    { id: 'suppliers', title: 'الموردين', icon: <Truck size={28}/>, color: '#34495e' },
+    { id: 'financials', title: 'قوائم مالية', icon: <BarChart3 size={28}/>, color: '#16a085' },
+    { id: 'reports', title: 'التقارير', icon: <FileText size={28}/>, color: '#2980b9' },
+    { id: 'customers', title: 'العملاء', icon: <Users size={28}/>, color: '#27ae60' },
+    { id: 'staff', title: 'العمالة', icon: <UserCheck size={28}/>, color: '#0ea5e9' },
   ];
 
   // معالجة بيانات الرسم البياني محلياً بدقة
@@ -156,7 +157,7 @@ const Dashboard = ({
       </div>
       
       {/* إعدادات النظام */}
-      <div onClick={() => setActivePage('Settings')} style={{ backgroundColor: '#fff', borderRadius: '16px', marginTop: '20px', padding: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', cursor: 'pointer', color: '#64748b', fontWeight: 'bold', boxShadow: '0 4px 12px rgba(0,0,0,0.02)' }}>
+      <div onClick={() => setActivePage('settings')} style={{ backgroundColor: '#fff', borderRadius: '16px', marginTop: '20px', padding: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', cursor: 'pointer', color: '#64748b', fontWeight: 'bold', boxShadow: '0 4px 12px rgba(0,0,0,0.02)' }}>
         <Settings size={20}/> إعدادات النظام والنسخ الاحتياطي
       </div>
       <div style={{ height: '100px' }}></div>
