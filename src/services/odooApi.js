@@ -1,34 +1,26 @@
-// بيانات سيرفر أودو الخاص بك
-const ODOO_CONFIG = {
-  baseUrl: 'https://nawahio1.odoo.com',
-  db: 'nawahio1', // اسم قاعدة البيانات المستخرج من الرابط
-};
+import { supabase } from './supabaseClient'; // استدعاء العميل الذي أنشأناه فوق
 
-export const loginToOdoo = async (email, password) => {
+export const loginToSupabase = async (email, password) => {
   try {
-    const response = await fetch(`${ODOO_CONFIG.baseUrl}/jsonrpc`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        method: "call",
-        params: {
-          service: "common",
-          method: "login",
-          args: [ODOO_CONFIG.db, email, password]
-        }
-      })
+    // سوبابيز توفر دالة مدمجة مخصصة لتسجيل الدخول بالإيميل والباسورد
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: email,
+      password: password,
     });
 
-    const data = await response.json();
-
-    // أودو يرجع رقم (UID) في حال النجاح، ويرجع False في حال الفشل
-    if (data.result && typeof data.result === 'number') {
-      return { success: true, uid: data.result };
-    } else {
-      return { success: false, error: "بيانات الدخول غير صحيحة" };
+    // إذا أرجعت المنصة خطأ أثناء تسجيل الدخول
+    if (error) {
+      return { success: false, error: error.message };
     }
+
+    // في حال النجاح، سوبابيز ترجع كائن يحتوي على بيانات المستخدم (User) والـ Session والـ Token تلقائياً
+    return { 
+      success: true, 
+      user: data.user, 
+      session: data.session 
+    };
+
   } catch (err) {
-    return { success: false, error: "فشل الاتصال بسيرفر أودو" };
+    return { success: false, error: "حدث خطأ غير متوقع أثناء الاتصال" };
   }
 };
