@@ -2,8 +2,8 @@ import React, { useState } from 'react';
 import { Package, Truck, Calendar, Hash, DollarSign, ArrowRight, Save, ShoppingCart, Bell, Table, AlertTriangle, User } from 'lucide-react';
 import DataGrid from './DataGrid';
 
-// --- استيراد كود خدمات المشتريات الخارجي بشكل مباشر لدعم المزامنة الفورية ---
-import { PurchaseService } from '../services.js';
+// --- استيراد الخدمة مباشرة من المسار الفعلي والمحدد بدقة لمنع أخطاء التوجيه السحابي ---
+import { PurchaseService } from '../services/PurchaseService.js';
 
 const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigger, inventory = [] }) => {
   const [activeView, setActiveView] = useState('menu');
