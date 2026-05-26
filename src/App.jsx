@@ -3,6 +3,9 @@ import { Preferences } from '@capacitor/preferences';
 import { App as AppLauncher } from '@capacitor/app';
 import Swal from 'sweetalert2';
 
+// --- استيراد ملف الخدمات من src/services لإدارة اتصالات الـ API وقاعدة البيانات ---
+import * as apiService from './services'; 
+
 // --- استيراد كافة المكونات الحقيقية للنظام من مجلد components ---
 import Dashboard from './components/Dashboard';
 import Inventory from './components/Inventory';
@@ -122,7 +125,7 @@ const App = () => {
       setProductionHistory(updatedHistory);
       await storage.save('productionHistory', updatedHistory);
     }
-    Swal.fire('تم الحذف', 'تم إزالة العنصر من السجلات المحلية الموحدة', 'success');
+    Swal.fire('تم الحفظ', 'تم إزالة العنصر من السجلات المحلية الموحدة', 'success');
   };
 
   useEffect(() => {
