@@ -25,13 +25,13 @@ jobs:
       - name: Install Dependencies 📦
         run: npm install
 
-      # 4. المزامنة الحديدية والمستقرة مباشرة عبر بريزما وبدون وسطاء 🛡️
+      # 4. المزامنة الحديدية المستقرة للأبد مباشرة عبر بريزما 🛡️
       - name: Push Prisma Schema to Production ☁️
         run: |
-          # توليد الـ Client الخاص ببريزما للـ Build
+          # توليد الـ Client الخاص ببريزما
           npx prisma generate
           
-          # حفر الجداول مباشرة ومستقرة في قاعدة البيانات بصيغة الرابط المباشر الرسمي
+          # حفر الجداول مباشرة في السيرفر عبر الرابط المستقر
           npx prisma db push --skip-generate
         env:
           DATABASE_URL: "postgresql://postgres:${{ secrets.DB_PASSWORD }}@aws-0-eu-central-1.pooler.supabase.com:5432/postgres?options=reference%3Dnyqkojeogsmzggfgarwl&sslmode=require"
