@@ -2,8 +2,8 @@ import React, { useState } from 'react';
 import { Package, Truck, Calendar, Hash, DollarSign, ArrowRight, Save, ShoppingCart, Bell, Table, AlertTriangle, User } from 'lucide-react';
 import DataGrid from './DataGrid';
 
-// --- استدعاء عميل سوبابيز المباشر المتكامل مع الأسرار بدلاً من الخدمة القديمة ---
-import { supabase } from '../supabaseClient';
+// --- تعديل المسار بدقة ليتجه إلى مجلد الإعدادات الفعلي للمشروع ---
+import { supabase } from '../config/supabase';
 
 const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigger, inventory = [] }) => {
   const [activeView, setActiveView] = useState('menu');
@@ -51,7 +51,7 @@ const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigg
     });
   };
 
-  // --- إصلاح دالة إرسال طلب الاحتياج لتتحدث مع Supabase مباشرة ---
+  // --- دالة إرسال طلب الاحتياج لتتحدث مع Supabase مباشرة ---
   const handleSendToSuppliers = async (e) => {
     if (e) e.preventDefault();
     if (!orderRequest.item || !orderRequest.neededQty) {
@@ -104,7 +104,7 @@ const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigg
     setActiveView('menu');
   };
 
-  // --- إصلاح دالة حفظ الفاتورة (الزر الأخضر) لتتحدث مع Supabase مباشرة ---
+  // --- دالة حفظ الفاتورة (الزر الأخضر) لتتحدث مع Supabase مباشرة ---
   const handleSave = async (e) => {
     if (e) e.preventDefault();
     
