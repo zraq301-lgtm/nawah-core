@@ -1,37 +1,45 @@
 import { PrismaClient } from '@prisma/client';
 
-// تعريف العميل داخل الملف نفسه لضمان استقرار الكود على Vercel
-const prisma = new PrismaClient();
-
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ message: "Method not allowed" });
   }
 
-  try {
-    const { tenantId, orderData, idempotencyKey } = req.body;
+  const { tenantId, orderData, idempotencyKey } = req.body;
 
-    if (!tenantId || !orderData || !idempotencyKey) {
-      return res.status(400).json({ message: "Missing required data" });
+  if (!tenantId || !orderData || !idempotencyKey) {
+    return res.status(400).json({ message: "Missing required data" });
+  }
+
+  // 1. السحر الهندي: تجهيز رابط اتصال مخصص للـ Schema بتاعة العميل ده بالظبط 🧙‍♂️
+  const schemaName = `tenant_${tenantId}`;
+  
+  // نقوم بحقن اسم السكيما في رابط الـ Pooler المستقر (منفذ 6543 المخصص للـ API في فيرسيل)
+  const tenantDatabaseUrl = `postgresql://postgres:${process.env.DB_PASSWORD}@aws-0-eu-central-1.pooler.supabase.com:6543/postgres?schema=${schemaName}&sslmode=require`;
+
+  // 2. إنشاء نسخة مخصصة من PrismaClient لهذا الطلب فقط لتوجيهه للغرفة الصحيحة
+  const prisma = new PrismaClient({
+    datasources: {
+      db: { url: tenantDatabaseUrl }
     }
+  });
 
-    // التنفيذ باستخدام Transaction
+  try {
+    // 3. التنفيذ باستخدام Transaction جوة سكيما العميل
     const result = await prisma.$transaction(async (tx) => {
       
-      // البحث عن الطلب الحالي
+      // البحث عن الطلب الحالي داخل جداول العميل نفسه (بدون الحاجة لحقل tenant_id لأن الجدول معزول بالكامل!)
       const existing = await tx.purchase.findFirst({
         where: { 
-          tenant_id: String(tenantId),
           idempotency_key: String(idempotencyKey) 
         }
       });
 
       if (existing) throw new Error("DUPLICATE_ORDER");
 
-      // إنشاء الطلب
+      // إنشاء الطلب في جدول الـ purchase الخاص بالعميل
       return await tx.purchase.create({
         data: {
-          tenant_id: String(tenantId),
           idempotency_key: String(idempotencyKey),
           total_amount: orderData.total || 0,
           status: "pending",
@@ -49,7 +57,7 @@ export default async function handler(req, res) {
     return res.status(200).json({ status: "success", data: result });
 
   } catch (error) {
-    console.error("API Error Details:", error);
+    console.error(`❌ خطأ في الـ API للعميل (${schemaName}):`, error);
     
     if (error.message === "DUPLICATE_ORDER") {
       return res.status(409).json({ status: "error", message: "Order already exists" });
@@ -59,5 +67,8 @@ export default async function handler(req, res) {
       status: "error", 
       message: error.message 
     });
+  } finally {
+    // 4. خطوة مهمة جداً لفيرسيل: قفل الاتصال بعد انتهاء الطلب لعدم استهلاك ممرات الـ Pooler
+    await prisma.$disconnect();
   }
 }
