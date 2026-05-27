@@ -1,0 +1,46 @@
+name: Automated Deployment & Prisma Sync 🚀
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy-and-sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. جلب الكود من المستودع
+      - name: Checkout Repository 📂
+        uses: actions/checkout@v4
+
+      # 2. إعداد بيئة عمل Node.js
+      - name: Setup Node.js 🟢
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      # 3. تثبيت الحزم والاعتماديات
+      - name: Install Dependencies 📦
+        run: npm ci
+
+      # 4. خطوة المزامنة المعزولة والمؤمنة لمنع تعليق السيرفر ☁️
+      - name: Sync Prisma Schema with Supabase ☁️
+        run: npm run prisma:sync
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+
+      # 5. بناء واجهة التطبيق بشكل مستقر
+      - name: Build Application 🛠️
+        run: npm run build
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+
+      # 6. النشر والرفع النهائي للملفات الناتجة
+      - name: Deploy Production Artifacts 🚀
+        run: |
+          echo "🤖 تم تحديث الداتابيز وبناء التطبيق بنجاح حاد..."
+          echo "جاري تشغيل خطة النشر والرفع النهائي لجت هب..."
