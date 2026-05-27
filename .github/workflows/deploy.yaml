@@ -32,7 +32,7 @@ jobs:
           SUPABASE_ACCESS_TOKEN="${{ secrets.SUPABASE_ACCESS_TOKEN }}" supabase link --project-ref nyqkojeogsmzggfgarwl --password "${{ secrets.DB_PASSWORD }}"
           npm run prisma:sync
         env:
-          DATABASE_URL: "postgresql://postgres:${{ secrets.DB_PASSWORD }}@aws-0-eu-central-1.pooler.supabase.com:5432/postgres?sslmode=require"
+          DATABASE_URL: "postgresql://postgres.nyqkojeogsmzggfgarwl:${{ secrets.DB_PASSWORD }}@db.nyqkojeogsmzggfgarwl.supabase.com:5432/postgres"
 
       # 5. بناء واجهة التطبيق بشكل مستقر
       - name: Build Application 🛠️
