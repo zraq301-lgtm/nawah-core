@@ -1,19 +1,26 @@
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["multiSchema"] // تفعيل ميزة الشاشات المتعددة لتشغيل العزل الفولاذي 🛡️
 }
 
 datasource db {
   provider  = "postgresql"
   url       = env("DATABASE_URL")
   directUrl = env("DIRECT_URL")
+  schemas   = ["public", "base_template"] // تحديد الـ Schemas الأساسية للنظام
 }
 
-// 1. جداول المستخدمين والشركات
+// ==========================================
+// 1. جداول النظام العامة (تكون في الـ public schema لإدارة الحسابات والشركات)
+// ==========================================
+
 model Company {
   id        String   @id @default(uuid())
   name      String
   createdAt DateTime @default(now())
   users     User[]
+
+  @@schema("public") // حفر الجدول داخل الـ public schema
 }
 
 model User {
@@ -22,15 +29,18 @@ model User {
   password      String
   companyId     String?
   company       Company?       @relation(fields: [companyId], references: [id])
-  // العلاقات الجديدة: المستخدم يمتلك مشتريات وطلبات خاصة به
   purchases     Purchase[]
   orderRequests OrderRequest[]
+
+  @@schema("public") // حفر الجدول داخل الـ public schema
 }
 
-// 2. جداول المشتريات المعزولة لكل مستخدم
+// ==========================================
+// 2. جداول الـ ERP (الـ Template الرئيسي الذي سيتم النسخ منه تلقائياً لكل عميل)
+// ==========================================
+
 model Purchase {
   id             String   @id @default(uuid())
-  tenant_id      String   @default("default_tenant")
   item           String   
   unit           String?  
   quantity       Float    
@@ -42,26 +52,26 @@ model Purchase {
   batch_id       String?  
   created_at     DateTime @default(now())
   
-  // حقول العزل والربط مع المستخدم 🛡️
+  // حقول الربط داخل الـ Template
   userId         String
   user           User     @relation(fields: [userId], references: [id])
 
   @@map("purchases")
+  @@schema("base_template") // حفر الجدول داخل الـ base_template
 }
 
-// 3. جداول الطلبات المعزولة لكل مستخدم
 model OrderRequest {
   id         String   @id @default(uuid())
-  tenant_id  String   @default("default_tenant")
   item       String   
   quantity   Float    
   supplier   String   @default("عام") 
   type       String   @default("ERP_ORDER_REQUEST")
   created_at DateTime @default(now())
   
-  // حقول العزل والربط مع المستخدم 🛡️
+  // حقول الربط داخل الـ Template
   userId     String
   user       User     @relation(fields: [userId], references: [id])
 
   @@map("order_requests")
+  @@schema("base_template") // حفر الجدول داخل الـ base_template
 }
