@@ -25,22 +25,24 @@ jobs:
       - name: Install Dependencies 📦
         run: npm install
 
-      # 4. المزامنة المنظمة والمضمونة بحفر الجداول مباشرة 🛡️
-      - name: Link Project & Push Prisma Schema ☁️
+      # 4. الربط وتشغيل النفق المحلي للمزامنة 🛡️
+      - name: Link Project & Sync Prisma via Local Tunnel ☁️
         run: |
-          # تثبيت أداة سوبابيز
           npm install -g supabase
           
-          # ربط المشروع بنجاح باستخدام التوكن والباسورد
+          # 1. ربط المشروع بنجاح حاد
           SUPABASE_ACCESS_TOKEN="${{ secrets.SUPABASE_ACCESS_TOKEN }}" supabase link --project-ref nyqkojeogsmzggfgarwl --password "${{ secrets.DB_PASSWORD }}"
           
-          # توليد الـ Client الخاص ببريزما للـ Build
-          npx prisma generate
+          # 2. تشغيل بروكسي محلي يربط جيت هب بسوبابيز مباشرة ويتخطى الـ Pooler
+          SUPABASE_ACCESS_TOKEN="${{ secrets.SUPABASE_ACCESS_TOKEN }}" supabase db proxy --password "${{ secrets.DB_PASSWORD }}" &
           
-          # حفر الجداول فوراً وبشكل مباشر من ملف schema.prisma إلى سوبابيز
+          # الانتظار 3 ثوانٍ للتأكد من فتح النفق
+          sleep 3
+          
+          # 3. تشغيل بريزما لحفر الجداول عبر منفذ البروكسي المحلي 54322
           npx prisma db push --skip-generate
         env:
-          DATABASE_URL: "postgresql://postgres.nyqkojeogsmzggfgarwl:${{ secrets.DB_PASSWORD }}@aws-0-eu-central-1.pooler.supabase.com:5432/postgres?sslmode=require"
+          DATABASE_URL: "postgresql://postgres.nyqkojeogsmzggfgarwl:${{ secrets.DB_PASSWORD }}@127.0.0.1:54322/postgres?sslmode=disable"
 
       # 5. بناء واجهة التطبيق بشكل مستقر
       - name: Build Application 🛠️
