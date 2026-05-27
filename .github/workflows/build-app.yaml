@@ -1,4 +1,4 @@
-name: "Mamoul Final Recovery Build"
+      name: "Mamoul Final Recovery Build"
 
 on:
   push:
@@ -30,9 +30,16 @@ jobs:
           
       - name: 4. Build Web Project
         env:
-          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          # تمرير كائن الأسرار بالكامل كـ JSON للدالة
+          ALL_SECRETS: ${{ toJson(secrets) }}
         run: |
+          # دالة ذكية لاستخراج الأسرار وحقنها تلقائياً في ملف .env
+          echo "🤖 جاري استخراج وحقن الأسرار ديناميكياً..."
+          echo "$ALL_SECRETS" | jq -r 'to_entries[] | "\(.key)=\(.value)"' > .env
+          
+          # تأكيد إضافي لـ DATABASE_URL الثابتة لضمان استقرار البريزما والسيرفر
+          echo "DATABASE_URL=\"postgres://postgres.nyqkojeogsmzggfgarwl:ERPnawh2026@aws-0-eu-central-1.pooler.supabase.com:6543/postgres?pgbouncer=true&connection_limit=1\"" >> .env
+          
           npm install --legacy-peer-deps
           npm run build
           # ضمان وجود المجلد المطلوب
