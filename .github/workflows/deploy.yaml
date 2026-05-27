@@ -25,19 +25,14 @@ jobs:
       - name: Install Dependencies 📦
         run: npm install
 
-      # 4. المزامنة القاطعة وحفر الجداول مباشرة عبر الـ CLI 🛡️
-      - name: Link Project & Push Schema via CLI ☁️
+      # 4. المزامنة القاطعة وحفر الجداول مباشرة عبر pgbouncer pooler 🛡️
+      - name: Generate Schema & Execute SQL Directly ☁️
         run: |
-          npm install -g supabase
-          
-          # ربط المشروع بحسابك
-          SUPABASE_ACCESS_TOKEN="${{ secrets.SUPABASE_ACCESS_TOKEN }}" supabase link --project-ref nyqkojeogsmzggfgarwl --password "${{ secrets.DB_PASSWORD }}"
-          
-          # 1. توليد ملف الـ SQL المباشر من بريزما
+          # 1. تحويل ملف بريزما الـ Schema إلى كود SQL صريح
           npx prisma migrate diff --from-empty --to-schema-datamodel prisma/schema.prisma --script > schema.sql
           
-          # 2. تنفيذ الملف مباشرة داخل سوبابيز لحفر الجداول فوراً
-          SUPABASE_ACCESS_TOKEN="${{ secrets.SUPABASE_ACCESS_TOKEN }}" supabase db execute --password "${{ secrets.DB_PASSWORD }}" --file schema.sql
+          # 2. تنفيذ ملف الـ SQL مباشرة داخل سوبابيز باستخدام أداة psql الرسمية عبر الـ Pooler المستقر
+          PGPASSWORD="${{ secrets.DB_PASSWORD }}" psql -h aws-0-eu-central-1.pooler.supabase.com -p 5432 -U "postgres.nyqkojeogsmzggfgarwl" -d postgres -f schema.sql
         env:
           DATABASE_URL: "postgresql://postgres.nyqkojeogsmzggfgarwl:${{ secrets.DB_PASSWORD }}@aws-0-eu-central-1.pooler.supabase.com:5432/postgres?sslmode=require"
 
