@@ -1,77 +1,51 @@
-generator client {
-  provider        = "prisma-client-js"
-  previewFeatures = ["multiSchema"] // تفعيل ميزة الشاشات المتعددة لتشغيل العزل الفولاذي 🛡️
-}
+name: Automated Deployment & Prisma Sync 🚀
 
-datasource db {
-  provider  = "postgresql"
-  url       = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
-  schemas   = ["public", "base_template"] // تحديد الـ Schemas الأساسية للنظام
-}
+on:
+  push:
+    branches:
+      - main
 
-// ==========================================
-// 1. جداول النظام العامة (تكون في الـ public schema لإدارة الحسابات والشركات)
-// ==========================================
+jobs:
+  deploy-and-sync:
+    runs-on: ubuntu-latest
 
-model Company {
-  id        String   @id @default(uuid())
-  name      String
-  createdAt DateTime @default(now())
-  users     User[]
+    steps:
+      # 1. جلب الكود من المستودع
+      - name: Checkout Repository 📂
+        uses: actions/checkout@v4
 
-  @@schema("public") // حفر الجدول داخل الـ public schema
-}
+      # 2. إعداد بيئة عمل Node.js
+      - name: Setup Node.js 🟢
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
 
-model User {
-  id            String         @id @default(uuid())
-  email         String         @unique
-  password      String
-  companyId     String?
-  company       Company?       @relation(fields: [companyId], references: [id])
-  purchases     Purchase[]
-  orderRequests OrderRequest[]
+      # 3. تثبيت الحزم والاعتماديات
+      - name: Install Dependencies 📦
+        run: npm install
 
-  @@schema("public") // حفر الجدول داخل الـ public schema
-}
+      # 4. المزامنة الحديدية المستقرة وحفر الـ Schemas والجداول الأصلية 🛡️
+      - name: Push Prisma Multi-Schema to Production ☁️
+        run: |
+          # توليد الـ Client مع الـ Preview Feature
+          npx prisma generate
+          
+          # حفر الجداول وإنشاء الـ public والـ base_template فوراً في سوبابيز
+          npx prisma db push --skip-generate
+        env:
+          DATABASE_URL: "postgresql://postgres:${{ secrets.DB_PASSWORD }}@aws-0-eu-central-1.pooler.supabase.com:6543/postgres?options=reference%3Dnyqkojeogsmzggfgarwl&sslmode=require"
+          DIRECT_URL: "postgresql://postgres:${{ secrets.DB_PASSWORD }}@aws-0-eu-central-1.pooler.supabase.com:5432/postgres?options=reference%3Dnyqkojeogsmzggfgarwl&sslmode=require"
 
-// ==========================================
-// 2. جداول الـ ERP (الـ Template الرئيسي الذي سيتم النسخ منه تلقائياً لكل عميل)
-// ==========================================
+      # 5. بناء واجهة التطبيق بشكل مستقر
+      - name: Build Application 🛠️
+        run: npm run build
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
 
-model Purchase {
-  id             String   @id @default(uuid())
-  item           String   
-  unit           String?  
-  quantity       Float    
-  price          Float    
-  total          Float    
-  supplier       String?  
-  payment_method String   @default("كاش") 
-  purchase_date  String?  
-  batch_id       String?  
-  created_at     DateTime @default(now())
-  
-  // حقول الربط داخل الـ Template
-  userId         String
-  user           User     @relation(fields: [userId], references: [id])
-
-  @@map("purchases")
-  @@schema("base_template") // حفر الجدول داخل الـ base_template
-}
-
-model OrderRequest {
-  id         String   @id @default(uuid())
-  item       String   
-  quantity   Float    
-  supplier   String   @default("عام") 
-  type       String   @default("ERP_ORDER_REQUEST")
-  created_at DateTime @default(now())
-  
-  // حقول الربط داخل الـ Template
-  userId     String
-  user       User     @relation(fields: [userId], references: [id])
-
-  @@map("order_requests")
-  @@schema("base_template") // حفر الجدول داخل الـ base_template
-}
+      # 6. النشر والرفع النهائي للملفات الناتجة
+      - name: Deploy Production Artifacts 🚀
+        run: |
+          echo "🤖 تم تحديث الداتابيز بنظام Multi-Schema وبناء التطبيق بنجاح حاد..."
+          echo "جاري تشغيل خطة النشر والرفع النهائي لجت هب..."
