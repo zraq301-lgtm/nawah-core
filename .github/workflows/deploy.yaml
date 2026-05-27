@@ -1,50 +1,77 @@
-name: Automated Deployment & Prisma Sync 🚀
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["multiSchema"] // تفعيل ميزة الشاشات المتعددة لتشغيل العزل الفولاذي 🛡️
+}
 
-on:
-  push:
-    branches:
-      - main
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+  schemas   = ["public", "base_template"] // تحديد الـ Schemas الأساسية للنظام
+}
 
-jobs:
-  deploy-and-sync:
-    runs-on: ubuntu-latest
+// ==========================================
+// 1. جداول النظام العامة (تكون في الـ public schema لإدارة الحسابات والشركات)
+// ==========================================
 
-    steps:
-      # 1. جلب الكود من المستودع
-      - name: Checkout Repository 📂
-        uses: actions/checkout@v4
+model Company {
+  id        String   @id @default(uuid())
+  name      String
+  createdAt DateTime @default(now())
+  users     User[]
 
-      # 2. إعداد بيئة عمل Node.js
-      - name: Setup Node.js 🟢
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: 'npm'
+  @@schema("public") // حفر الجدول داخل الـ public schema
+}
 
-      # 3. تثبيت الحزم والاعتماديات
-      - name: Install Dependencies 📦
-        run: npm install
+model User {
+  id            String         @id @default(uuid())
+  email         String         @unique
+  password      String
+  companyId     String?
+  company       Company?       @relation(fields: [companyId], references: [id])
+  purchases     Purchase[]
+  orderRequests OrderRequest[]
 
-      # 4. المزامنة الحديدية المستقرة للأبد مباشرة عبر بريزما 🛡️
-      - name: Push Prisma Schema to Production ☁️
-        run: |
-          # توليد الـ Client الخاص ببريزما
-          npx prisma generate
-          
-          # حفر الجداول مباشرة في السيرفر عبر الرابط المستقر
-          npx prisma db push --skip-generate
-        env:
-          DATABASE_URL: "postgresql://postgres:${{ secrets.DB_PASSWORD }}@aws-0-eu-central-1.pooler.supabase.com:5432/postgres?options=reference%3Dnyqkojeogsmzggfgarwl&sslmode=require"
+  @@schema("public") // حفر الجدول داخل الـ public schema
+}
 
-      # 5. بناء واجهة التطبيق بشكل مستقر
-      - name: Build Application 🛠️
-        run: npm run build
-        env:
-          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+// ==========================================
+// 2. جداول الـ ERP (الـ Template الرئيسي الذي سيتم النسخ منه تلقائياً لكل عميل)
+// ==========================================
 
-      # 6. النشر والرفع النهائي للملفات الناتجة
-      - name: Deploy Production Artifacts 🚀
-        run: |
-          echo "🤖 تم تحديث الداتابيز وبناء التطبيق بنجاح حاد..."
-          echo "جاري تشغيل خطة النشر والرفع النهائي لجت هب..."
+model Purchase {
+  id             String   @id @default(uuid())
+  item           String   
+  unit           String?  
+  quantity       Float    
+  price          Float    
+  total          Float    
+  supplier       String?  
+  payment_method String   @default("كاش") 
+  purchase_date  String?  
+  batch_id       String?  
+  created_at     DateTime @default(now())
+  
+  // حقول الربط داخل الـ Template
+  userId         String
+  user           User     @relation(fields: [userId], references: [id])
+
+  @@map("purchases")
+  @@schema("base_template") // حفر الجدول داخل الـ base_template
+}
+
+model OrderRequest {
+  id         String   @id @default(uuid())
+  item       String   
+  quantity   Float    
+  supplier   String   @default("عام") 
+  type       String   @default("ERP_ORDER_REQUEST")
+  created_at DateTime @default(now())
+  
+  // حقول الربط داخل الـ Template
+  userId     String
+  user       User     @relation(fields: [userId], references: [id])
+
+  @@map("order_requests")
+  @@schema("base_template") // حفر الجدول داخل الـ base_template
+}
