@@ -1,4 +1,4 @@
-name: Automated Deployment & Prisma Sync 🚀
+name: Automated Build Verification 🚀
 
 on:
   push:
@@ -6,46 +6,30 @@ on:
       - main
 
 jobs:
-  deploy-and-sync:
+  verify-and-build:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. جلب الكود من المستودع
       - name: Checkout Repository 📂
         uses: actions/checkout@v4
 
-      # 2. إعداد بيئة عمل Node.js
       - name: Setup Node.js 🟢
         uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: 'npm'
 
-      # 3. تثبيت الحزم والاعتماديات
       - name: Install Dependencies 📦
         run: npm install
 
-      # 4. المزامنة الحديدية المستقرة وحفر الـ Schemas والجداول الأصلية 🛡️
-      - name: Push Prisma Multi-Schema to Production ☁️
-        run: |
-          # توليد الـ Client مع الـ Preview Feature
-          npx prisma generate
-          
-          # حفر الجداول وإنشاء الـ public والـ base_template فوراً في سوبابيز
-          npx prisma db push --skip-generate
-        env:
-          DATABASE_URL: "postgresql://postgres:${{ secrets.DB_PASSWORD }}@aws-0-eu-central-1.pooler.supabase.com:6543/postgres?options=reference%3Dnyqkojeogsmzggfgarwl&sslmode=require"
-          DIRECT_URL: "postgresql://postgres:${{ secrets.DB_PASSWORD }}@aws-0-eu-central-1.pooler.supabase.com:5432/postgres?options=reference%3Dnyqkojeogsmzggfgarwl&sslmode=require"
+      # توليد الكلاينت محلياً داخل جيت هب للتأكد من سلامة كود التايب سكريبت
+      - name: Generate Prisma Client 📝
+        run: npx prisma generate
 
-      # 5. بناء واجهة التطبيق بشكل مستقر
+      # بناء التطبيق للتأكد من سلامة الأكواد قبل النشر
       - name: Build Application 🛠️
         run: npm run build
         env:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
-
-      # 6. النشر والرفع النهائي للملفات الناتجة
-      - name: Deploy Production Artifacts 🚀
-        run: |
-          echo "🤖 تم تحديث الداتابيز بنظام Multi-Schema وبناء التطبيق بنجاح حاد..."
-          echo "جاري تشغيل خطة النشر والرفع النهائي لجت هب..."
+          DATABASE_URL: "postgresql://postgres:dummy@localhost:5432/postgres" # رابط وهمي لتخطي حاجز البناء فقط
