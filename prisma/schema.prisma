@@ -1,4 +1,3 @@
-// 1. الإعدادات الأساسية لقاعدة البيانات ومحرك بريزما
 generator client {
   provider = "prisma-client-js"
 }
@@ -6,10 +5,10 @@ generator client {
 datasource db {
   provider  = "postgresql"
   url       = env("DATABASE_URL")
-  directUrl = env("DATABASE_URL") // تم التعديل هنا لاستخدام نفس الرابط المضمون ليتجاوز جدار الحماية
+  directUrl = env("DATABASE_URL")
 }
 
-// 2. جداول المستخدمين والشركات
+// 1. جداول المستخدمين والشركات
 model Company {
   id        String   @id @default(uuid())
   name      String
@@ -18,14 +17,17 @@ model Company {
 }
 
 model User {
-  id        String   @id @default(uuid())
-  email     String   @unique
-  password  String
-  companyId String?
-  company   Company? @relation(fields: [companyId], references: [id])
+  id            String         @id @default(uuid())
+  email         String         @unique
+  password      String
+  companyId     String?
+  company       Company?       @relation(fields: [companyId], references: [id])
+  // العلاقات الجديدة: المستخدم يمتلك مشتريات وطلبات خاصة به
+  purchases     Purchase[]
+  orderRequests OrderRequest[]
 }
 
-// 3. جداول المشتريات والطلبات (المتوافقة تماماً مع واجهة الـ React)
+// 2. جداول المشتريات المعزولة لكل مستخدم
 model Purchase {
   id             String   @id @default(uuid())
   tenant_id      String   @default("default_tenant")
@@ -39,10 +41,15 @@ model Purchase {
   purchase_date  String?  
   batch_id       String?  
   created_at     DateTime @default(now())
+  
+  // حقول العزل والربط مع المستخدم 🛡️
+  userId         String
+  user           User     @relation(fields: [userId], references: [id])
 
   @@map("purchases")
 }
 
+// 3. جداول الطلبات المعزولة لكل مستخدم
 model OrderRequest {
   id         String   @id @default(uuid())
   tenant_id  String   @default("default_tenant")
@@ -51,6 +58,10 @@ model OrderRequest {
   supplier   String   @default("عام") 
   type       String   @default("ERP_ORDER_REQUEST")
   created_at DateTime @default(now())
+  
+  // حقول العزل والربط مع المستخدم 🛡️
+  userId     String
+  user       User     @relation(fields: [userId], references: [id])
 
   @@map("order_requests")
 }
