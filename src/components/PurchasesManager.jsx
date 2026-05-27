@@ -2,8 +2,8 @@ import React, { useState } from 'react';
 import { Package, Truck, Calendar, Hash, DollarSign, ArrowRight, Save, ShoppingCart, Bell, Table, AlertTriangle, User } from 'lucide-react';
 import DataGrid from './DataGrid';
 
-// --- استيراد الخدمة مباشرة من المسار الفعلي والمحدد بدقة لمنع أخطاء التوجيه السحابي ---
-import { PurchaseService } from '../services/PurchaseService.js';
+// --- استدعاء عميل سوبابيز المباشر المتكامل مع الأسرار بدلاً من الخدمة القديمة ---
+import { supabase } from '../supabaseClient';
 
 const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigger, inventory = [] }) => {
   const [activeView, setActiveView] = useState('menu');
@@ -51,7 +51,7 @@ const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigg
     });
   };
 
-  // --- إصلاح دالة إرسال طلب الاحتياج ---
+  // --- إصلاح دالة إرسال طلب الاحتياج لتتحدث مع Supabase مباشرة ---
   const handleSendToSuppliers = async (e) => {
     if (e) e.preventDefault();
     if (!orderRequest.item || !orderRequest.neededQty) {
@@ -64,15 +64,24 @@ const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigg
     // عزل المزامنة السحابية تماماً لضمان عدم توقف واجهة الموبايل
     try {
       const tenantId = localStorage.getItem('tenantId') || 'default_tenant';
-      const idempotencyKey = `req-${Date.now()}`;
       
-      if (PurchaseService && typeof PurchaseService.createPurchaseOrder === 'function') {
-        await PurchaseService.createPurchaseOrder(tenantId, {
-          item: orderRequest.item,
-          quantity: parseFloat(orderRequest.neededQty) || 0,
-          supplier: orderRequest.supplier || 'عام',
-          type: 'ERP_ORDER_REQUEST'
-        }, idempotencyKey);
+      // الرفع المباشر لجدول طلبات الاحتياج في Supabase
+      if (supabase) {
+        const { error } = await supabase
+          .from('order_requests')
+          .insert([
+            {
+              tenant_id: tenantId,
+              item: orderRequest.item,
+              quantity: parseFloat(orderRequest.neededQty) || 0,
+              supplier: orderRequest.supplier || 'عام',
+              type: 'ERP_ORDER_REQUEST',
+              created_at: new Date().toISOString()
+            }
+          ]);
+        
+        if (error) throw error;
+        console.log("☁️ تم مزامنة طلب الاحتياج مع سوبابيز بنجاح");
       }
     } catch (err) {
       console.warn("☁️ خطأ في الشبكة/السيرفر - سيتم التنفيذ محلياً:", err);
@@ -95,7 +104,7 @@ const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigg
     setActiveView('menu');
   };
 
-  // --- إصلاح دالة حفظ الفاتورة (الزر الأخضر) ---
+  // --- إصلاح دالة حفظ الفاتورة (الزر الأخضر) لتتحدث مع Supabase مباشرة ---
   const handleSave = async (e) => {
     if (e) e.preventDefault();
     
@@ -124,16 +133,32 @@ const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigg
       }
     };
 
-    // 2. عزل كامل لعملية المزامنة الخارجية الحية (Safe Boundary)
+    // 2. عزل كامل لعملية المزامنة الخارجية الحية عبر العميل المباشر
     try {
       const tenantId = localStorage.getItem('tenantId') || 'default_tenant';
-      const idempotencyKey = `pur-${purchaseWithBatch.id}`;
       
-      if (PurchaseService && typeof PurchaseService.createPurchaseOrder === 'function') {
-        await PurchaseService.createPurchaseOrder(tenantId, purchaseWithBatch, idempotencyKey);
-        console.log("☁️ تم المزامنة مع السيرفر الرئيسي بنجاح");
-      } else {
-        console.warn("⚠️ ملف الخدمة PurchaseService أو الدالة createPurchaseOrder غير معرفة.");
+      // الرفع المباشر لفاتورة المشتريات لجدول فواتير المشتريات في Supabase
+      if (supabase) {
+        const { error } = await supabase
+          .from('purchases')
+          .insert([
+            {
+              tenant_id: tenantId,
+              item: purchaseWithBatch.item,
+              unit: purchaseWithBatch.unit,
+              quantity: purchaseWithBatch.quantity,
+              price: purchaseWithBatch.price,
+              total: purchaseWithBatch.total,
+              supplier: purchaseWithBatch.supplier,
+              payment_method: purchaseWithBatch.paymentMethod,
+              purchase_date: purchaseWithBatch.date,
+              batch_id: purchaseWithBatch.batchInfo.batchId,
+              created_at: new Date().toISOString()
+            }
+          ]);
+
+        if (error) throw error;
+        console.log("☁️ تم المزامنة وحفظ الفاتورة داخل سوبابيز بنجاح");
       }
     } catch (error) {
       // إذا فشل السيرفر، لا يهم! سنعتمد البيانات محلياً لضمان استقرار التطبيق
