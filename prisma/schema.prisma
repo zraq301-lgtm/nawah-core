@@ -1,31 +1,56 @@
-// generator و datasource وجداول المستخدمين تبقى كما هي تماماً دون تغيير...
+// 1. الإعدادات الأساسية لقاعدة البيانات ومحرك بريزما
+generator client {
+  provider = "prisma-client-js"
+}
 
-// 3. جداول المشتريات (تم تعديلها لتطابق حقول واجهة الـ React بدقة)
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// 2. جداول المستخدمين والشركات
+model Company {
+  id        String   @id @default(uuid())
+  name      String
+  createdAt DateTime @default(now())
+  users     User[]
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  companyId String?
+  company   Company? @relation(fields: [companyId], references: [id])
+}
+
+// 3. جداول المشتريات والطلبات (المتوافقة تماماً مع واجهة الـ React)
 model Purchase {
   id             String   @id @default(uuid())
   tenant_id      String   @default("default_tenant")
-  item           String   // اسم الصنف
-  unit           String?  // الوحدة (اختياري)
-  quantity       Float    // الكمية
-  price          Float    // السعر
-  total          Float    // الإجمالي
-  supplier       String?  // اسم المورد
-  payment_method String   @default("كاش") // طريقة السداد
-  purchase_date  String?  // تاريخ الفاتورة
-  batch_id       String?  // رقم الشحنة/الـ Batch
+  item           String   
+  unit           String?  
+  quantity       Float    
+  price          Float    
+  total          Float    
+  supplier       String?  
+  payment_method String   @default("كاش") 
+  purchase_date  String?  
+  batch_id       String?  
   created_at     DateTime @default(now())
 
-  @@map("purchases") // لضمان إنشاء الجدول في Supabase باسم purchases الصغير
+  @@map("purchases")
 }
 
 model OrderRequest {
   id         String   @id @default(uuid())
   tenant_id  String   @default("default_tenant")
-  item       String   // الصنف المطلوب
-  quantity   Float    // الكمية المطلوبة
-  supplier   String   @default("عام") // اسم المورد الموجه له الطلب
+  item       String   
+  quantity   Float    
+  supplier   String   @default("عام") 
   type       String   @default("ERP_ORDER_REQUEST")
   created_at DateTime @default(now())
 
-  @@map("order_requests") // لضمان إنشاء الجدول في Supabase باسم order_requests الصغير
+  @@map("order_requests")
 }
