@@ -21,9 +21,9 @@ jobs:
           node-version: 20
           cache: 'npm'
 
-      # 3. تثبيت الحزم والاعتماديات
+      # 3. تثبيت الحزم والاعتماديات (تم التعديل لتجنب تعارض الـ lock file)
       - name: Install Dependencies 📦
-        run: npm ci
+        run: npm install
 
       # 4. خطوة المزامنة المعزولة والمؤمنة لمنع تعليق السيرفر ☁️
       - name: Sync Prisma Schema with Supabase ☁️
