@@ -49,7 +49,7 @@ const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigg
     });
   };
 
-  // --- 🚀 دالة إرسال طلب الاحتياج عبر الرابط الموحد لفيرسيل ---
+  // --- 🚀 دالة إرسال طلب الاحتياج عبر الرابط الموحد المحدث ---
   const handleSendToSuppliers = async (e) => {
     if (e) e.preventDefault();
     if (!orderRequest.item || !orderRequest.neededQty) {
@@ -60,20 +60,19 @@ const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigg
     setIsSubmitting(true);
 
     try {
-      // جلب السكيما الممررة من الأب أو استدعائها احتياطياً من التخزين المحلي
       const currentSchema = tenantSchema || localStorage.getItem('tenant_schema') || 'public';
 
       const options = {
-        url: 'https://project-902ma.vercel.app/api/erp/mutate',
+        url: 'https://project-902ma.vercel.app/api/erp/mutate', // تثبيت الرابط الأصلي بناءً على طلبك
         headers: { 'Content-Type': 'application/json' },
         data: {
           schema: currentSchema,
-          action: 'ADD_ORDER_REQUEST', // توجيه للأكشن الخاص بالاحتياجات
-          data: {
-            item: orderRequest.item,
+          table: 'order_requests', // الصيغة الجديدة الديناميكية (الجدول)
+          data: {                  // الصيغة الجديدة الديناميكية (البيانات)
+            item_name: orderRequest.item,
             quantity: parseFloat(orderRequest.neededQty) || 0,
-            supplier: orderRequest.supplier || 'عام',
-            type: 'ERP_ORDER_REQUEST',
+            supplier_name: orderRequest.supplier || 'عام',
+            request_type: 'ERP_ORDER_REQUEST',
             created_at: new Date().toISOString()
           }
         }
@@ -103,7 +102,7 @@ const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigg
     setActiveView('menu');
   };
 
-  // --- 🟢 دالة حفظ ومزامنة فاتورة المشتريات عبر الرابط الموحد لفيرسيل ---
+  // --- 🟢 دالة حفظ ومزامنة فاتورة المشتريات عبر الرابط الموحد المحدث ---
   const handleSave = async (e) => {
     if (e) e.preventDefault();
     
@@ -135,22 +134,19 @@ const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigg
       const currentSchema = tenantSchema || localStorage.getItem('tenant_schema') || 'public';
 
       const options = {
-        url: 'https://project-902ma.vercel.app/api/erp/mutate',
+        url: 'https://project-902ma.vercel.app/api/erp/mutate', // تثبيت الرابط الأصلي بناءً على طلبك
         headers: { 'Content-Type': 'application/json' },
         data: {
           schema: currentSchema,
-          action: 'ADD_PURCHASE_INVOICE', // الأكشن الفولاذي لتسجيل الفاتورة وتحديث المخزن تلقائياً بالسيرفر
-          data: {
-            item: purchaseWithBatch.item,
-            unit: purchaseWithBatch.unit,
-            quantity: purchaseWithBatch.quantity,
-            price: purchaseWithBatch.price,
-            total: purchaseWithBatch.total,
-            supplier: purchaseWithBatch.supplier,
-            payment_method: purchaseWithBatch.paymentMethod,
-            purchase_date: purchaseWithBatch.date,
-            batch_id: purchaseWithBatch.batchInfo.batchId,
-            created_at: new Date().toISOString()
+          table: 'invoices', // الصيغة الجديدة الديناميكية (الجدول)
+          data: {                  // الصيغة الجديدة الديناميكية (البيانات)
+            invoice_number: purchaseWithBatch.batchInfo.batchId,
+            invoice_type: 'purchase',
+            gross_amount: purchaseWithBatch.total,
+            net_amount: purchaseWithBatch.total,
+            paid_amount: formData.paymentMethod === 'كاش' ? purchaseWithBatch.total : 0,
+            remaining_amount: formData.paymentMethod === 'آجل' ? purchaseWithBatch.total : 0,
+            created_at: new Date(purchaseWithBatch.date).toISOString()
           }
         }
       };
@@ -318,7 +314,7 @@ const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigg
             <button 
               type="submit" 
               disabled={isSubmitting}
-              style={{ backgroundColor: '#1e5631', width: '100%', padding: '12px', borderRadius: '10px', color: '#fff', border: 'none', display: 'flex', alignItems: 'center', justifyIntent: 'center', gap: '8px', fontSize: '1rem', fontWeight: 'bold', cursor: 'pointer', opacity: isSubmitting ? 0.5 : 1 }}>
+              style={{ backgroundColor: '#1e5631', width: '100%', padding: '12px', borderRadius: '10px', color: '#fff', border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '1rem', fontWeight: 'bold', cursor: 'pointer', opacity: isSubmitting ? 0.5 : 1 }}>
               <Save size={20} /> {isSubmitting ? 'جاري تأمين وحفر الفاتورة بالسيرفر الموحد...' : 'حفظ ومزامنة الفاتورة سحابياً'}
             </button>
           </form>
