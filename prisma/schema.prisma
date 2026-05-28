@@ -24,13 +24,13 @@ model Company {
 }
 
 model User {
-  id            String         @id @default(uuid())
-  email         String         @unique
-  password      String
-  companyId     String?
-  company       Company?       @relation(fields: [companyId], references: [id])
-  purchases     Purchase[]
-  orderRequests OrderRequest[]
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  companyId String?
+  company   Company? @relation(fields: [companyId], references: [id])
+
+  // 💡 تم حذف مصفوفات الربط الخارجي لعدم كسر قواعد الـ Cross-Schema
 
   @@schema("public") // حفر الجدول داخل الـ public schema
 }
@@ -52,9 +52,8 @@ model Purchase {
   batch_id       String?  
   created_at     DateTime @default(now())
   
-  // حقول الربط داخل الـ Template
+  // 💡 نحتفظ بالـ userId كـ معرف فريد للفلترة برمجياً، بدون عمل Foreign Key مباشر يكسر السكيما
   userId         String
-  user           User     @relation(fields: [userId], references: [id])
 
   @@map("purchases")
   @@schema("base_template") // حفر الجدول داخل الـ base_template
@@ -68,9 +67,8 @@ model OrderRequest {
   type       String   @default("ERP_ORDER_REQUEST")
   created_at DateTime @default(now())
   
-  // حقول الربط داخل الـ Template
+  // 💡 نحتفظ بالـ userId كـ معرف فريد للفلترة برمجياً
   userId     String
-  user       User     @relation(fields: [userId], references: [id])
 
   @@map("order_requests")
   @@schema("base_template") // حفر الجدول داخل الـ base_template
