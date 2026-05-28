@@ -1,19 +1,18 @@
 import { createClient } from '@supabase/supabase-js';
 
-// 🔥 قراءة المتغيرات المؤمنة من سيرفر فيرسيل مباشرة لحماية البيانات على GitHub
+// قراءة المتغيرات المؤمنة من سيرفر فيرسيل
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-// تأمين السيرفر: التحقق من أن المتغيرات تم ضبطها في إعدادات فيرسيل قبل تشغيل الدالة
 if (!supabaseUrl || !supabaseServiceKey) {
   console.error("خطأ حرج: متغيرات بيئة العمل لـ Supabase غير معرفة في إعدادات Vercel!");
 }
 
-// تهيئة اتصال سوبابيز بمفتاح الأدمن الخارق لتخطي حماية السكيمات
+// تهيئة اتصال سوبابيز بمفتاح الأدمن الخارق لتخطي حماية السكيمات ديناميكياً
 const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
 export default async function handler(req, res) {
-  // تفعيل حماية وتخطي الـ CORS للأندرويد والمحاكيات (مهم جداً لتجنب تجميد الطلب)
+  // 1️⃣ تفعيل إعدادات الـ CORS الكاملة لتأمين استقرار حركة المرور مع الأندرويد
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -24,88 +23,45 @@ export default async function handler(req, res) {
 
   // السماح بطلبات POST فقط لعمليات الحفظ والتعديل
   if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'الطريقة غير مسموح بها، استخدم POST' });
+    return res.status(405).json({ success: false, error: 'الطريقة غير مسموح بها، استخدم POST' });
   }
 
-  const { schema, action, data } = req.body;
+  // 2️⃣ استقبال المعيار الموحد الجديد
+  // table: اسم الجدول المستهدف بالإنجليزية (مثل: items, invoices, contacts)
+  // data: كائن مرن يحتوي على أسماء الأعمدة وقيمها القادمة من الموبايل مباشرة
+  const { schema, table, data } = req.body;
 
   // التحقق من سلامة البيانات المستقبلة من تطبيق الموبايل لنواة AI
-  if (!schema || !action || !data) {
-    return res.status(400).json({ success: false, error: 'البيانات المرسلة من الموبايل ناقصة (السكيما، الإجراء، أو الداتا)' });
+  if (!schema || !table || !data) {
+    return res.status(400).json({ 
+      success: false, 
+      error: 'البيانات المرسلة ناقصة، المعيار يتطلب إرسال (schema, table, data)' 
+    });
   }
 
   try {
-    let result;
+    // 3️⃣ التنفيذ الديناميكي الحر والموحد داخل قاعدة البيانات 🚀
+    const { data: dbResult, error: dbErr } = await supabaseAdmin
+      .schema(schema) // توجيه المحرك ديناميكياً للسكيما الخاصة بالمؤسسة
+      .from(table)    // توجيه المحرك للجدول المطلوب هندسياً
+      .insert([data]) // حقن مصفوفة البيانات أوتوماتيكياً مهما تنوعت الأعمدة
+      .select();
 
-    // المايسترو الذكي: يوجه الحفظ للجدول الصحيح جوه السكيما المخصصة
-    switch (action) {
-      
-      // 1️⃣ قسم الأصناف والمخازن (نواة AI)
-      case 'ADD_PRODUCT':
-        const { data: prodData, error: prodErr } = await supabaseAdmin
-          .schema(schema) // السكيما تذكر أولاً دائماً
-          .from('الأصناف_والمخزون')
-          .insert([{
-            كود_الباركود: data.barcode,
-            الاسم: data.name,
-            نوع_الصنف: data.type, // مطابق لـ (مادة_خام / منتج_تام) في الـ SQL
-            سعر_التكلفة: data.cost || 0,
-            سعر_البيع: data.price || 0,
-            الكمية_المتاحة: data.quantity || 0
-          }])
-          .select();
-        
-        if (prodErr) throw prodErr;
-        result = prodData && prodData.length > 0 ? prodData[0] : null;
-        break;
+    if (dbErr) throw dbErr;
 
-      // 2️⃣ قسم المبيعات والمشتريات (الفواتير والحركات)
-      case 'SAVE_INVOICE':
-        const { data: invData, error: invErr } = await supabaseAdmin
-          .schema(schema) // تحديد السكيما أولاً
-          .from('الحركات_والفواتير')
-          .insert([{
-            رقم_الحركة: data.code,
-            نوع_الحركة: data.type, // بيع أو شراء
-            الجهة_id: data.entityId,
-            إجمالي_الخام: data.gross || 0,
-            الخصم: data.discount || 0,
-            صافي_الفاتورة: data.net || 0,   // 🔥 تم تصحيح مسمى الحقل والتعليق
-            المبلغ_المدفوع: data.paid || 0, // 🔥 تم تصحيح مسمى الحقل والتعليق
-            المتبقي: data.rest || 0        // 🔥 تم تصحيح مسمى الحقل والتعليق
-          }])
-          .select();
-
-        if (invErr) throw invErr;
-        result = invData && invData.length > 0 ? invData[0] : null;
-        break;
-
-      // 3️⃣ قسم الحضور والرواتب (الموارد البشرية)
-      case 'LOG_ATTENDANCE':
-        const { data: attData, error: attErr } = await supabaseAdmin
-          .schema(schema) // تحديد السكيما أولاً
-          .from('الحضور_والرواتب')
-          .insert([{
-            الموظف_id: data.employeeId,
-            وقت_الحضور: data.status === 'حضور' ? new Date() : null,
-            وقت_الانصراف: data.status === 'انصراف' ? new Date() : null,
-            الراتب_اليومي_أو_الأساسي: data.wage || 0
-          }])
-          .select();
-
-        if (attErr) throw attErr;
-        result = attData && attData.length > 0 ? attData[0] : null;
-        break;
-
-      default:
-        return res.status(400).json({ success: false, error: 'هذا الإجراء (Action) غير مدعوم في معمارية المايسترو' });
-    }
-
-    // إرسال النتيجة الناجحة للموبايل فوراً
-    return res.status(200).json({ success: true, data: result });
+    // 4️⃣ الرد الموحد بالنجاح وإرجاع السطر المحفور في قاعدة البيانات
+    return res.status(200).json({ 
+      success: true, 
+      message: `تم حفر البيانات بنجاح في جدول ${table}`,
+      data: dbResult && dbResult.length > 0 ? dbResult[0] : null 
+    });
 
   } catch (error) {
-    console.error('خطأ الباك إند الموحد أثناء الحفظ:', error);
-    return res.status(500).json({ success: false, error: error.message });
+    console.error(`خطأ الباك إند الموحد أثناء الحفظ في جدول ${table}:`, error);
+    // إرجاع تفاصيل الخطأ الحقيقية القادمة من PostgreSQL لتسهيل الفحص في الموبايل
+    return res.status(400).json({ 
+      success: false, 
+      error: error.message || error 
+    });
   }
 }
