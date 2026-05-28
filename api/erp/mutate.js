@@ -43,12 +43,12 @@ export default async function handler(req, res) {
       // 1️⃣ قسم الأصناف والمخازن (نواة AI)
       case 'ADD_PRODUCT':
         const { data: prodData, error: prodErr } = await supabaseAdmin
-          .schema(schema) // 🔥 تصحيح حديدي: السكيما تذكر أولاً دائماً
+          .schema(schema) // السكيما تذكر أولاً دائماً
           .from('الأصناف_والمخزون')
           .insert([{
             كود_الباركود: data.barcode,
             الاسم: data.name,
-            نوع_صنف: data.type, // مطابق لـ (مادة_خام / منتج_تام) في الـ SQL
+            نوع_الصنف: data.type, // مطابق لـ (مادة_خام / منتج_تام) في الـ SQL
             سعر_التكلفة: data.cost || 0,
             سعر_البيع: data.price || 0,
             الكمية_المتاحة: data.quantity || 0
@@ -62,7 +62,7 @@ export default async function handler(req, res) {
       // 2️⃣ قسم المبيعات والمشتريات (الفواتير والحركات)
       case 'SAVE_INVOICE':
         const { data: invData, error: invErr } = await supabaseAdmin
-          .schema(schema) // 🔥 تصحيح حديدي: السكيما أولاً
+          .schema(schema) // تحديد السكيما أولاً
           .from('الحركات_والفواتير')
           .insert([{
             رقم_الحركة: data.code,
@@ -70,9 +70,9 @@ export default async function handler(req, res) {
             الجهة_id: data.entityId,
             إجمالي_الخام: data.gross || 0,
             الخصم: data.discount || 0,
-            صافي_الفاتورة: data.net || 0,   -- 🔥 تم التعديل للاسم المعتمد في الـ SQL
-            المبلغ_المدفوع: data.paid || 0, -- 🔥 تم التعديل للاسم المعتمد في الـ SQL
-            المتبقي: data.rest || 0        -- 🔥 تم التعديل للاسم المعتمد في الـ SQL
+            صافي_الفاتورة: data.net || 0,   // 🔥 تم تصحيح مسمى الحقل والتعليق
+            المبلغ_المدفوع: data.paid || 0, // 🔥 تم تصحيح مسمى الحقل والتعليق
+            المتبقي: data.rest || 0        // 🔥 تم تصحيح مسمى الحقل والتعليق
           }])
           .select();
 
@@ -83,7 +83,7 @@ export default async function handler(req, res) {
       // 3️⃣ قسم الحضور والرواتب (الموارد البشرية)
       case 'LOG_ATTENDANCE':
         const { data: attData, error: attErr } = await supabaseAdmin
-          .schema(schema) // 🔥 تصحيح حديدي: السكيما أولاً
+          .schema(schema) // تحديد السكيما أولاً
           .from('الحضور_والرواتب')
           .insert([{
             الموظف_id: data.employeeId,
