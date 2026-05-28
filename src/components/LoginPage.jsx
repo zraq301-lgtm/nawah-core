@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import axios from 'axios';
+import { CapacitorHttp } from '@capacitor/core'; // 🔥 الاستيراد الأصلي لكاباسيتور
 // استدعاء دالة تسجيل الدخول المخصصة من الـ services
 import { loginToSupabase } from '../services/supabaseClient';
 
@@ -19,14 +19,22 @@ const LoginPage = ({ onLoginSuccess }) => {
 
     try {
       if (isRegisterMode) {
-        // 🚀 أولاً: وضع التسجيل (إنشاء شركة وحفر الجداول تلقائياً في سوبابيز من الخارج)
-        const response = await axios.post('/api/auth/register', {
-          companyName: formData.companyName,
-          adminEmail: formData.email,
-          adminPassword: formData.password
-        });
+        // 🚀 أولاً: وضع التسجيل باستخدام CapacitorHttp لتخطي الـ CORS على الأندرويد
+        const options = {
+          url: 'https://project-902ma.vercel.app/api/auth/register', // رابط الـ API المباشر الخاص بك
+          headers: { 'Content-Type': 'application/json' },
+          data: {
+            companyName: formData.companyName,
+            adminEmail: formData.email,
+            adminPassword: formData.password
+          }
+        };
 
-        if (response.data.success) {
+        // إرسال الطلب عبر الموديول الأصلي للموبايل
+        const response = await CapacitorHttp.post(options);
+
+        // CapacitorHttp بيرجع البيانات دايماً جوة حقل الـ data مباشرة
+        if (response.data && response.data.success) {
           // حفظ اسم السكيما المستهدفة ديناميكياً لاستعمالها في الفواتير لاحقاً
           localStorage.setItem('tenant_schema', response.data.schema);
           
@@ -43,6 +51,13 @@ const LoginPage = ({ onLoginSuccess }) => {
             localStorage.setItem('user_email', formData.email);
             if (onLoginSuccess) onLoginSuccess();
           }
+        } else {
+          // التعامل مع الأخطاء الراجعة من الـ API نفسه
+          setStatus({
+            loading: false,
+            error: response.data?.error || "فشل تأسيس النظام، يرجى مراجعة البيانات",
+            successMessage: ''
+          });
         }
       } else {
         // 🔑 ثانياً: وضع تسجيل الدخول التقليدي المستقر
@@ -69,9 +84,10 @@ const LoginPage = ({ onLoginSuccess }) => {
         }
       }
     } catch (err) {
+      // التعامل مع أخطاء الشبكة العامة أو عدم استجابة السيرفر
       setStatus({ 
         loading: false, 
-        error: err.response?.data?.error || "تعذر الاتصال بالسيرفر، تأكد من إعدادات الشبكة",
+        error: "تعذر الاتصال بالسيرفر، تأكد من إعدادات الشبكة ومفتاح الأمان",
         successMessage: ''
       });
     }
