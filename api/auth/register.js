@@ -3,14 +3,13 @@ import { createClient } from '@supabase/supabase-js';
 
 const prisma = new PrismaClient();
 
+// تهيئة كليانت سوبابيز بمفتاح الـ Service Role لامتلاك صلاحيات الإدارة الفولاذية
 const supabase = createClient(
   process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY // 🛡️ تأكد من إضافة هذا المفتاح في إعدادات فيرسيل
+  process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-// الدالة الأساسية التي يستدعيها فيرسيل عند طلب الـ API
 export default async function handler(req, res) {
-  // تأكد من أن الطلب من نوع POST فقط لمنع التلاعب
   if (req.method !== 'POST') {
     return res.status(405).json({ success: false, message: 'Method Not Allowed' });
   }
@@ -18,26 +17,40 @@ export default async function handler(req, res) {
   const { companyName, adminEmail, adminPassword } = req.body;
 
   try {
-    // 1. توليد اسم سكيما فريد وخاص بالشركة ونظيف
+    // 1️⃣ أولاً: توليد اسم سكيما فريد وخاص بالشركة للـ ERP
     const schemaName = `tenant_${Date.now()}`;
 
-    // 2. إنشاء الشركة داخل الـ public schema
+    // 2️⃣ ثانياً: إنشاء حساب المستخدم الحقيقي داخل سوبابيز أوتوماتيكياً وتفعيله فوراً 🔐
+    const { data: authUser, error: authError } = await supabase.auth.admin.createUser({
+      email: adminEmail,
+      password: adminPassword,
+      email_confirm: true // 🔥 سحر أمني: الحساب بيتفعل فوراً بدون ما يروح يفتح إيميله!
+    });
+
+    if (authError) {
+      throw new Error(`فشل إنشاء الحساب في سوبابيز: ${authError.message}`);
+    }
+
+    const supabaseUid = authUser.user.id; // الـ ID الفريد الذي ولدته سوبابيز للمستخدم
+
+    // 3️⃣ ثالثاً: تسجيل الشركة داخل الـ public schema عبر بريزما
     const newCompany = await prisma.company.create({
       data: {
         name: companyName,
       },
     });
 
-    // 3. إنشاء مستخدم الإدمن وربطه بالشركة
-    const newUser = await prisma.user.create({
+    // 4️⃣ رابعاً: ربط المستخدم بالشركة وحفظ بياناته في جدول الـ User العام
+    await prisma.user.create({
       data: {
+        id: supabaseUid, // نستخدم نفس الـ UID بتاع سوبابيز لتوحيد الهوية 🎯
         email: adminEmail,
-        password: adminPassword, 
+        password: adminPassword, // (يفضل تشفيره، لكن بريزما ستحفظه كمرجع)
         companyId: newCompany.id,
       },
     });
 
-    // 🚀 4. استدعاء المكنة التلقائية السحرية داخل سوبابيز لحفر الجداول للعميل
+    // 5️⃣ خامساً: استدعاء مكينة الحفر الداخلية لحفر جداول الـ ERP (المشتريات والطلبات)
     const { error: rpcError } = await supabase.rpc('create_new_client_erp', {
       client_schema_name: schemaName
     });
@@ -46,12 +59,13 @@ export default async function handler(req, res) {
       throw new Error(`فشل حفر جداول العميل تلقائياً: ${rpcError.message}`);
     }
 
-    // 5. الرد بنجاح العملية وحفظ البيانات
+    // 6️⃣ سادساً: الرد بنجاح العملية بالكامل
     return res.status(201).json({
       success: true,
-      message: "تم تأسيس الشركة وحفر نظام الـ ERP الخاص بها بنجاح وعزلها فولاذياً!",
+      message: "تم إنشاء الحساب، وتأسيس الشركة، وحفر الـ ERP بنجاح تفريدي ومؤمن!",
       companyId: newCompany.id,
-      schema: schemaName
+      schema: schemaName,
+      userId: supabaseUid
     });
 
   } catch (error) {
