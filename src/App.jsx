@@ -23,18 +23,34 @@ const App = () => {
   const [stock, setStock] = useState([]);
   const [productionHistory, setProductionHistory] = useState([]);
   const [isSyncing, setIsSyncing] = useState(false);
+  
+  // 🔥 إضافة المتغير السحري الخاص برقم الشركة (السكيما) المتصل بالـ API
+  const [tenantSchema, setTenantSchema] = useState('public');
 
-  // --- المحرك المحلي المستقر (Offline-First Engine) ---
+  // --- المحرك المحلي الفولاذي والأكثر استقراراً (Offline-First Engine) ---
   const storage = {
     save: async (key, data) => {
-      await Preferences.set({ key, value: JSON.stringify(data) });
-      localStorage.setItem(key, JSON.stringify(data)); 
+      try {
+        const stringifiedData = JSON.stringify(data);
+        // التخزين الأصلي والأكثر أماناً داخل SharedPreferences للأندرويد
+        await Preferences.set({ key, value: stringifiedData });
+        // نسخة احتياطية إضافية للويب والمتصفح لحماية مزدوجة
+        localStorage.setItem(key, stringifiedData); 
+      } catch (error) {
+        console.error(`خطأ أثناء الحفظ المحلي للمفتاح ${key}:`, error);
+      }
     },
     load: async (key) => {
-      const { value } = await Preferences.get({ key });
       try {
-        return value ? JSON.parse(value) : JSON.parse(localStorage.getItem(key) || 'null');
+        // المحاولة الأولى: جلب البيانات المستقرة من Preferences
+        const { value } = await Preferences.get({ key });
+        if (value) return JSON.parse(value);
+        
+        // المحاولة الثانية (Fallback): إذا لم توجد، نجلبها من localStorage
+        const localValue = localStorage.getItem(key);
+        return localValue ? JSON.parse(localValue) : null;
       } catch (e) {
+        console.error(`خطأ أثناء قراءة البيانات للمفتاح ${key}:`, e);
         return null;
       }
     }
@@ -65,23 +81,32 @@ const App = () => {
         existing.balance += balance;
         if (price > 0) existing.price = price; 
       } else {
-        grouped.set(name, {
-          ...item,
-          id: item.id || item._id || Date.now() + Math.random(),
-          name: name,
-          balance: balance,
-          price: price
-        });
+        groupNode(grouped, name, item, balance, price);
       }
     });
     return Array.from(grouped.values());
   };
 
-  // --- مزامنة وإدارة البيانات السريعة ---
+  // دالة مساعدة معزولة لمنع تكرار الهياكل البرمجية
+  const groupNode = (map, name, item, balance, price) => {
+    map.set(name, {
+      ...item,
+      id: item.id || item._id || Date.now() + Math.random(),
+      name: name,
+      balance: balance,
+      price: price
+    });
+  };
+
+  // --- مزامنة وإدارة البيانات السريعة وسحب رقم الشركة ---
   const fetchLocalData = useCallback(async () => {
     setIsSyncing(true);
     const localStock = await storage.load('stock');
     const localHistory = await storage.load('productionHistory');
+    
+    // 🔥 جلب رقم السكيما المخزن محلياً باسم 'tenant_schema'
+    const savedSchema = await storage.load('tenant_schema');
+    if (savedSchema) setTenantSchema(savedSchema);
     
     if (localStock) setStock(localStock);
     if (localHistory) setProductionHistory(localHistory);
@@ -157,6 +182,7 @@ const App = () => {
             stock={stock} 
             stats={stats}
             onDeleteItem={handleDelete}
+            tenantSchema={tenantSchema} // 🔥 تمرير السكيما
           />
         );
       case 'inventory':
@@ -167,6 +193,7 @@ const App = () => {
             setStock={setStock} 
             onDeleteItem={handleDelete}
             onInventoryEntry={handleSaveInventory} 
+            tenantSchema={tenantSchema} // 🔥 تمرير السكيما
           />
         );
       case 'production':
@@ -176,28 +203,29 @@ const App = () => {
             stock={stock} 
             setStock={setStock} 
             onSaveProduction={handleSaveProduction} 
+            tenantSchema={tenantSchema} // 🔥 تمرير السكيما
           />
         );
       case 'purchases':
-        return <PurchasesManager onBack={backToDashboard} stock={stock} setStock={setStock} />;
+        return <PurchasesManager onBack={backToDashboard} stock={stock} setStock={setStock} tenantSchema={tenantSchema} />;
       case 'sales':
-        return <Sales onBack={backToDashboard} stock={stock} setStock={setStock} stats={stats} />;
+        return <Sales onBack={backToDashboard} stock={stock} setStock={setStock} stats={stats} tenantSchema={tenantSchema} />;
       case 'waste':
-        return <Waste onBack={backToDashboard} stock={stock} setStock={setStock} onDeleteItem={handleDelete} />;
+        return <Waste onBack={backToDashboard} stock={stock} setStock={setStock} onDeleteItem={handleDelete} tenantSchema={tenantSchema} />;
       case 'expenses':
-        return <Expenses onBack={backToDashboard} stats={stats} />;
+        return <Expenses onBack={backToDashboard} stats={stats} tenantSchema={tenantSchema} />;
       case 'suppliers':
-        return <Suppliers onBack={backToDashboard} />;
+        return <Suppliers onBack={backToDashboard} tenantSchema={tenantSchema} />;
       case 'financials':
-        return <Financials onBack={backToDashboard} stats={stats} productionHistory={productionHistory} />;
+        return <Financials onBack={backToDashboard} stats={stats} productionHistory={productionHistory} tenantSchema={tenantSchema} />;
       case 'reports':
-        return <Reports onBack={backToDashboard} productionHistory={productionHistory} stock={stock} stats={stats} />;
+        return <Reports onBack={backToDashboard} productionHistory={productionHistory} stock={stock} stats={stats} tenantSchema={tenantSchema} />;
       case 'customers':
-        return <Customers onBack={backToDashboard} />;
+        return <Customers onBack={backToDashboard} tenantSchema={tenantSchema} />;
       case 'staff':
-        return <StaffManagement onBack={backToDashboard} />;
+        return <StaffManagement onBack={backToDashboard} tenantSchema={tenantSchema} />;
       case 'settings':
-        return <Settings onBack={backToDashboard} fetchLocalData={fetchLocalData} stock={stock} productionHistory={productionHistory} />;
+        return <Settings onBack={backToDashboard} fetchLocalData={fetchLocalData} stock={stock} productionHistory={productionHistory} tenantSchema={tenantSchema} setTenantSchema={setTenantSchema} storage={storage} />;
       default:
         return (
           <Dashboard 
@@ -206,6 +234,7 @@ const App = () => {
             stock={stock} 
             stats={stats}
             onDeleteItem={handleDelete}
+            tenantSchema={tenantSchema}
           />
         );
     }
@@ -223,7 +252,7 @@ const App = () => {
         {renderPage()}
       </main>
 
-      {/* شريط التحكم السفلي الثابت */}
+      {/* شريط التحكم السفلي الثابت الزجاجي */}
       <nav style={{
         position: 'fixed', bottom: '15px', left: '15px', right: '15px',
         height: '70px', backgroundColor: 'rgba(255, 255, 255, 0.95)',
