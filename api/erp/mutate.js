@@ -4,7 +4,7 @@ import { createClient } from '@supabase/supabase-js';
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-// تأمين السيرفر: التأكد من أن المتغيرات تم ضبطها في إعدادات فيرسيل قبل تشغيل الدالة
+// تأمين السيرفر: التحقق من أن المتغيرات تم ضبطها في إعدادات فيرسيل قبل تشغيل الدالة
 if (!supabaseUrl || !supabaseServiceKey) {
   console.error("خطأ حرج: متغيرات بيئة العمل لـ Supabase غير معرفة في إعدادات Vercel!");
 }
@@ -13,6 +13,15 @@ if (!supabaseUrl || !supabaseServiceKey) {
 const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
 export default async function handler(req, res) {
+  // تفعيل حماية وتخطي الـ CORS للأندرويد والمحاكيات (مهم جداً لتجنب تجميد الطلب)
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+
   // السماح بطلبات POST فقط لعمليات الحفظ والتعديل
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'الطريقة غير مسموح بها، استخدم POST' });
@@ -22,7 +31,7 @@ export default async function handler(req, res) {
 
   // التحقق من سلامة البيانات المستقبلة من تطبيق الموبايل لنواة AI
   if (!schema || !action || !data) {
-    return res.status(400).json({ success: false, error: 'البيانات المرسلة من الموبايل ناقصة' });
+    return res.status(400).json({ success: false, error: 'البيانات المرسلة من الموبايل ناقصة (السكيما، الإجراء، أو الداتا)' });
   }
 
   try {
@@ -34,56 +43,58 @@ export default async function handler(req, res) {
       // 1️⃣ قسم الأصناف والمخازن (نواة AI)
       case 'ADD_PRODUCT':
         const { data: prodData, error: prodErr } = await supabaseAdmin
+          .schema(schema) // 🔥 تصحيح حديدي: السكيما تذكر أولاً دائماً
           .from('الأصناف_والمخزون')
-          .schema(schema) // التوجيه الديناميكي للسكيما الفريدة للشركة
           .insert([{
             كود_الباركود: data.barcode,
             الاسم: data.name,
-            نوع_الصنف: data.type,
-            سعر_التكلفة: data.cost,
-            سعر_البيع: data.price
+            نوع_صنف: data.type, // مطابق لـ (مادة_خام / منتج_تام) في الـ SQL
+            سعر_التكلفة: data.cost || 0,
+            سعر_البيع: data.price || 0,
+            الكمية_المتاحة: data.quantity || 0
           }])
           .select();
         
         if (prodErr) throw prodErr;
-        result = prodData[0];
+        result = prodData && prodData.length > 0 ? prodData[0] : null;
         break;
 
       // 2️⃣ قسم المبيعات والمشتريات (الفواتير والحركات)
       case 'SAVE_INVOICE':
         const { data: invData, error: invErr } = await supabaseAdmin
+          .schema(schema) // 🔥 تصحيح حديدي: السكيما أولاً
           .from('الحركات_والفواتير')
-          .schema(schema)
           .insert([{
             رقم_الحركة: data.code,
             نوع_الحركة: data.type, // بيع أو شراء
             الجهة_id: data.entityId,
-            إجمالي_الخام: data.gross,
-            الخصم: data.discount,
-            الصافي: data.net,
-            المدفوع: data.paid,
-            المتبقي: data.rest
+            إجمالي_الخام: data.gross || 0,
+            الخصم: data.discount || 0,
+            صافي_الفاتورة: data.net || 0,   -- 🔥 تم التعديل للاسم المعتمد في الـ SQL
+            المبلغ_المدفوع: data.paid || 0, -- 🔥 تم التعديل للاسم المعتمد في الـ SQL
+            المتبقي: data.rest || 0        -- 🔥 تم التعديل للاسم المعتمد في الـ SQL
           }])
           .select();
 
         if (invErr) throw invErr;
-        result = invData[0];
+        result = invData && invData.length > 0 ? invData[0] : null;
         break;
 
       // 3️⃣ قسم الحضور والرواتب (الموارد البشرية)
       case 'LOG_ATTENDANCE':
         const { data: attData, error: attErr } = await supabaseAdmin
+          .schema(schema) // 🔥 تصحيح حديدي: السكيما أولاً
           .from('الحضور_والرواتب')
-          .schema(schema)
           .insert([{
             الموظف_id: data.employeeId,
-            الحالة: data.status, // حضور أو انصراف
-            الراتب_اليومي: data.wage
+            وقت_الحضور: data.status === 'حضور' ? new Date() : null,
+            وقت_الانصراف: data.status === 'انصراف' ? new Date() : null,
+            الراتب_اليومي_أو_الأساسي: data.wage || 0
           }])
           .select();
 
         if (attErr) throw attErr;
-        result = attData[0];
+        result = attData && attData.length > 0 ? attData[0] : null;
         break;
 
       default:
