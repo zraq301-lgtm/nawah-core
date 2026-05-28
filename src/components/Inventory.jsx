@@ -16,28 +16,28 @@ const Inventory = ({ onDeleteItem, onInventoryEntry }) => {
   const [finishedProductsData, setFinishedProductsData] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // 📥 1️⃣ دالة جلب البيانات الموحدة باستخدام CapacitorHttp وتوزيعها تلقائياً
+  // 📥 1️⃣ دالة جلب البيانات الموحدة المحدثة بالطريقة الجديدة
   const fetchStockData = async () => {
     try {
       setLoading(true);
       const schema = localStorage.getItem('tenant_schema') || 'public';
 
+      // الحفاظ على نفس الرابط الأصلي مع إرسال البارامترات المطلوبة
       const options = {
-        url: `https://project-902ma.vercel.app/api/erp/fetch?schema=${schema}&view=GET_STOCK`,
+        url: `https://project-902ma.vercel.app/api/erp/fetch?schema=${schema}&table=stock`, 
         headers: { 'Content-Type': 'application/json' }
       };
 
       const response = await CapacitorHttp.get(options);
       
+      // التعديل هنا ليتوافق مع طريقة استلام البيانات الجديدة
       if (response.data && response.data.data) {
         const allItems = response.data.data;
         console.log('📦 الأصناف المجلوبة من نواة AI:', allItems);
 
-        // 🌟 فك الفرز والتوزيع الذكي:
-        // افترضنا هنا أن الجدول يحتوي على حقل باسم type أو category لتحديد طبيعة الصنف
-        // قم بتعديل المسميات (مثل 'خامات' أو 'منتج نهائي') حسب الـ Value المخزنة بقاعدتك
-        const raws = allItems.filter(item => item.type === 'خامات' || item.category === 'خامات');
-        const finished = allItems.filter(item => item.type === 'منتج نهائي' || item.category === 'منتج نهائي');
+        // 🌟 فك الفرز والتوزيع الذكي بناءً على الهيكل الجديد:
+        const raws = allItems.filter(item => item.item_type === 'raw_material' || item.type === 'خامات' || item.category === 'خامات');
+        const finished = allItems.filter(item => item.item_type === 'product' || item.type === 'منتج نهائي' || item.category === 'منتج نهائي');
 
         setRawMaterialsData(raws);
         setFinishedProductsData(finished);
