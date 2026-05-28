@@ -13,17 +13,31 @@ const LoginPage = ({ onLoginSuccess }) => {
   });
   const [status, setStatus] = useState({ loading: false, error: '', successMessage: '' });
 
-  // 🔹 دالة معالجة وتأمين البريد الإلكتروني لإلزام الامتداد الرسمي @nawh.ai
+  // 🔹 دالة مطورة وتأمين حديدي للبريد الإلكتروني لتنظيف ومنع تكرار الرموز الناتجة عن الكيبورد
   const formatAndValidateEmail = (inputEmail) => {
-    let cleanEmail = inputEmail.trim().toLowerCase();
-    if (!cleanEmail.endsWith('@nawh.ai')) {
-      if (!cleanEmail.includes('@')) {
-        cleanEmail = `${cleanEmail}@nawh.ai`;
-      } else {
-        return { valid: false, email: cleanEmail };
-      }
+    // 1. إزالة الفراغات وتحويل الحروف لصغيرة
+    let clean = inputEmail.trim().toLowerCase();
+    
+    if (!clean) return { valid: false, email: '' };
+
+    // 2. استخراج الجزء الخاص باسم المستخدم فقط (قبل أول علامة @) لمنع التكرار مثل المكتوب في اللقطة
+    let username = clean.split('@')[0];
+    
+    // إزالة أي نقاط أو رموز زائدة ملتصقة بالنهاية بالخطأ
+    if (username.endsWith('.')) {
+      username = username.slice(0, -1);
     }
-    return { valid: true, email: cleanEmail };
+
+    // 3. إعادة بناء البريد الإلكتروني الصافي والمعتمد تبعا لنواة AI
+    const finalEmail = `${username}@nawh.ai`;
+
+    // 4. اختبار أمان أخير للتأكد من هيكلة الإيميل الصحيحة
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(finalEmail)) {
+      return { valid: false, email: finalEmail };
+    }
+
+    return { valid: true, email: finalEmail };
   };
 
   // 🔹 معالجة تسجيل الدخول أو إنشاء حساب جديد
@@ -35,7 +49,7 @@ const LoginPage = ({ onLoginSuccess }) => {
     if (!emailCheck.valid) {
       setStatus({
         loading: false,
-        error: "يجب استخدام البريد الإلكتروني الرسمي المنتهي بـ @nawh.ai فقط",
+        error: "صيغة البريد غير صالحة. يرجى كتابة اسم المستخدم بشكل صحيح للامتداد @nawh.ai",
         successMessage: ''
       });
       return;
