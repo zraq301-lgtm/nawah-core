@@ -13,6 +13,15 @@ if (!supabaseUrl || !supabaseServiceKey) {
 const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
 export default async function handler(req, res) {
+  // تفعيل حماية وتخطي الـ CORS للأندرويد والمحاكيات
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+
   // السماح بطلبات GET فقط لعمليات القراءة والجلب
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'الطريقة غير مسموح بها، استخدم GET' });
@@ -35,8 +44,8 @@ export default async function handler(req, res) {
       // 1️⃣ جلب بضاعة وجرد المخزن بالكامل
       case 'GET_STOCK':
         const { data: stock, error: stockErr } = await supabaseAdmin
+          .schema(schema) // 🔥 تصحيح ذهبي: السكيما أولاً قبل الـ .from لتوجيه المحرك ديناميكياً
           .from('الأصناف_والمخزون')
-          .schema(schema) // التوجيه الديناميكي للسكيما الفريدة للشركة
           .select('*')
           .order('id', { ascending: false });
 
@@ -47,8 +56,8 @@ export default async function handler(req, res) {
       // 2️⃣ جلب كشف الفواتير بالكامل (مبيعات ومشتريات) للتقارير
       case 'GET_INVOICES':
         const { data: invoices, error: invErr } = await supabaseAdmin
+          .schema(schema) // 🔥 تصحيح ذهبي: تحديد السكيما أولاً
           .from('الحركات_والفواتير')
-          .schema(schema)
           .select('*')
           .order('id', { ascending: false });
 
@@ -59,8 +68,8 @@ export default async function handler(req, res) {
       // 3️⃣ جلب سجل الحضور والرواتب الخاص بالموظفين
       case 'GET_ATTENDANCE':
         const { data: attendance, error: attErr } = await supabaseAdmin
+          .schema(schema) // 🔥 تصحيح ذهبي: تحديد السكيما أولاً
           .from('الحضور_والرواتب')
-          .schema(schema)
           .select('*')
           .order('id', { ascending: false });
 
