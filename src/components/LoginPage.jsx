@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { CapacitorHttp } from '@capacitor/core'; 
+// 🔥 استيراد مكتبة Preferences لضمان تخزين رقم الشركة في الـ Native SharedPreferences للأندرويد
+import { Preferences } from '@capacitor/preferences';
 import { loginToSupabase } from '../services/supabaseClient';
 
 const LoginPage = ({ onLoginSuccess }) => {
@@ -15,7 +17,6 @@ const LoginPage = ({ onLoginSuccess }) => {
   const formatAndValidateEmail = (inputEmail) => {
     let cleanEmail = inputEmail.trim().toLowerCase();
     if (!cleanEmail.endsWith('@nawh.ai')) {
-      // إذا كان المستخدم كتب الاسم فقط بدون الدومين، نقوم بإضافته تلقائياً
       if (!cleanEmail.includes('@')) {
         cleanEmail = `${cleanEmail}@nawh.ai`;
       } else {
@@ -30,7 +31,6 @@ const LoginPage = ({ onLoginSuccess }) => {
     e.preventDefault();
     setStatus({ loading: true, error: '', successMessage: '' });
 
-    // التأكد من أمان النطاق البريدي أولاً
     const emailCheck = formatAndValidateEmail(formData.email);
     if (!emailCheck.valid) {
       setStatus({
@@ -59,7 +59,8 @@ const LoginPage = ({ onLoginSuccess }) => {
         const response = await CapacitorHttp.post(options);
 
         if (response.data && response.data.success) {
-          // حفظ اسم السكيما المستهدفة ديناميكياً لاستعمالها في الفواتير لاحقاً
+          // 🔥 حفظ مزدوج (مستقر وأصلي) لاسم السكيما المستهدفة ديناميكياً
+          await Preferences.set({ key: 'tenant_schema', value: JSON.stringify(response.data.schema) });
           localStorage.setItem('tenant_schema', response.data.schema);
           
           setStatus({
@@ -74,6 +75,8 @@ const LoginPage = ({ onLoginSuccess }) => {
             const userMetadata = loginResult.user?.user_metadata || {};
             const schemaName = userMetadata.tenant_schema || response.data.schema;
 
+            // 🔥 حفظ حديدي متوافق بنسبة 100% مع محرك App.jsx
+            await Preferences.set({ key: 'tenant_schema', value: JSON.stringify(schemaName) });
             localStorage.setItem('supabase_uid', loginResult.user.id);
             localStorage.setItem('user_email', targetEmail);
             localStorage.setItem('tenant_schema', schemaName); 
@@ -101,7 +104,6 @@ const LoginPage = ({ onLoginSuccess }) => {
         }
 
         // 🔥 الاسترجاع الديناميكي للسكيما لحل مشكلة تعدد الأجهزة
-        // يتم قراءة السكيما المخزنة سحابياً في الـ Metadata لضمان عملها فوراً على أي جهاز جديد
         const cloudSchema = result.user?.user_metadata?.tenant_schema;
 
         if (!cloudSchema) {
@@ -113,7 +115,10 @@ const LoginPage = ({ onLoginSuccess }) => {
           return;
         }
 
-        // حفظ البيانات المستقرة والموحدة بالـ LocalStorage للأندرويد
+        // 🔥 حفظ السكيما محلياً داخل نظام الأندرويد بأعلى درجات الاستقرار
+        await Preferences.set({ key: 'tenant_schema', value: JSON.stringify(cloudSchema) });
+        
+        // حفظ بقية عناصر الجلسة العامة بالـ LocalStorage للأندرويد
         localStorage.setItem('supabase_uid', result.user.id);
         localStorage.setItem('user_email', targetEmail);
         localStorage.setItem('tenant_schema', cloudSchema); 
