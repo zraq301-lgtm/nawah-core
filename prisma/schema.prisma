@@ -1,6 +1,5 @@
 generator client {
-  provider        = "prisma-client-js"
-  previewFeatures = ["multiSchema"] // تفعيل ميزة الشاشات المتعددة لتشغيل العزل الفولاذي 🛡️
+  provider = "prisma-client-js"
 }
 
 datasource db {
