@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "prisma generate && prisma db push && vite build",
+    "build": "prisma generate && vite build",
     "prisma:sync": "npx prisma db push --skip-generate",
     "preview": "vite preview",
     "static-build": "vite build --outDir www",
