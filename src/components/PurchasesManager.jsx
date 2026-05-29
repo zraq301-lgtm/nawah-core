@@ -22,8 +22,6 @@ const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigg
 
   // 🛡️ ميكانيزم استخراج رقم الشركة المعزول من الأندرويد بدقة ومنع الارتداد للعام
   const getCleanTenantSchema = () => {
-    // 1. محاولة قراءة الرقم من البروبس الممررة للكومبوننت
-    // 2. محاولة القراءة من تخزين الأندرويد المحلي بشتى المسميات المتوقعة
     const rawSchema = tenantSchema || 
                       localStorage.getItem('tenant_schema') || 
                       localStorage.getItem('tenantId') || 
@@ -31,11 +29,9 @@ const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigg
 
     if (!rawSchema || rawSchema === 'public') {
       console.error("❌ خطأ حرج في الواجهة: لم يتم العثور على معرف شركة معزول في تخزين الأندرويد!");
-      // في حالة عدم العثور عليه، نقوم ببناء كود حماية ديناميكي يسحب الرقم الأخير المسجل لضمان عدم توقف العمل بـ 400
-      return 'tenant_1780014041896'; 
+      return 'tenant_1780023145536'; 
     }
 
-    // التأكد من أن المسمى يبدأ بـ tenant_ وإلا نقوم بصياغته هندسياً
     return rawSchema.startsWith('tenant_') ? rawSchema : `tenant_${rawSchema}`;
   };
 
@@ -68,7 +64,7 @@ const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigg
     });
   };
 
-  // --- 🚀 دالة إرسال طلب الاحتياج عبر المعرف المعزول المستهدف ---
+  // --- 🚀 دالة إرسال طلب الاحتياج ---
   const handleSendToSuppliers = async (e) => {
     if (e) e.preventDefault();
     if (!orderRequest.item || !orderRequest.neededQty) {
@@ -77,16 +73,16 @@ const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigg
     }
 
     setIsSubmitting(true);
-    const companySchema = getCleanTenantSchema(); // جلب رقم نظام الشركة ديناميكياً
+    const companySchema = getCleanTenantSchema();
 
     try {
       const options = {
         url: 'https://project-902ma.vercel.app/api/erp/mutate',
         headers: { 'Content-Type': 'application/json' },
         data: {
-          schema: companySchema, // إرسال سكيما الشركة إجبارياً
+          schema: companySchema,
           table: 'order_requests', 
-          data: {                  
+          data: {                   
             item_name: orderRequest.item,
             quantity: parseFloat(orderRequest.neededQty) || 0,
             supplier_name: orderRequest.supplier || 'عام',
@@ -96,7 +92,6 @@ const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigg
         }
       };
 
-      console.log(`📡 جاري دفع طلب احتياج إلى نظام الشركة: [${companySchema}]`);
       const response = await CapacitorHttp.post(options);
       console.log('☁️ نتيجة مزامنة طلب الاحتياج:', response.data);
       
@@ -120,7 +115,7 @@ const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigg
     setActiveView('menu');
   };
 
-  // --- 🟢 دالة حفظ وتسكين فاتورة المشتريات داخل جداول الشركة المعزولة حتماً ---
+  // --- 🟢 دالة حفظ وتسكين فاتورة المشتريات مع إرسال المعرفات المستقرة ---
   const handleSave = async (e) => {
     if (e) e.preventDefault();
     
@@ -133,7 +128,7 @@ const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigg
     }
 
     setIsSubmitting(true);
-    const companySchema = getCleanTenantSchema(); // جلب رقم نظام الشركة ديناميكياً
+    const companySchema = getCleanTenantSchema();
 
     const purchaseWithBatch = {
       ...formData,
@@ -145,7 +140,7 @@ const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigg
         batchId: `B-${Date.now().toString().slice(-6)}`,
         purchaseDate: formData.date,
         costPerUnit: parsedPrice,
-        supplier: formData.supplier || 'مورد عام'
+        supplier: formData.supplier || 'مورد عام افتراضي'
       }
     };
 
@@ -154,42 +149,46 @@ const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigg
         url: 'https://project-902ma.vercel.app/api/erp/mutate',
         headers: { 'Content-Type': 'application/json' },
         data: {
-          schema: companySchema, // تسكين البيانات مباشرة داخل اسم سكيما الشركة
+          schema: companySchema, 
           table: 'invoices', 
-          data: {                  
+          data: {                   
             invoice_number: purchaseWithBatch.batchInfo.batchId,
             invoice_type: 'purchase',
             gross_amount: purchaseWithBatch.total,
             net_amount: purchaseWithBatch.total,
             paid_amount: formData.paymentMethod === 'كاش' ? purchaseWithBatch.total : 0,
             remaining_amount: formData.paymentMethod === 'آجل' ? purchaseWithBatch.total : 0,
-            created_at: new Date(purchaseWithBatch.date).toISOString()
+            created_at: new Date(purchaseWithBatch.date).toISOString(),
+            // 🔥 هنا السر الدائم المستقر: نمرر الرقم 1 ليرتبط بالمورد العام المثبت في الداتابيز فتنشط العلاقات فوراً!
+            contact_id: 1 
           }
         }
       };
 
-      console.log(`📡 جاري تسكين الفاتورة مباشرة في سكيما الشركة: [${companySchema}]`);
+      console.log(`📡 جاري دفع الفاتورة بالعلاقات الصارمة إلى: [${companySchema}]`);
       const response = await CapacitorHttp.post(options);
-      console.log('☁️ نتيجة التسكين السحابي للشركة:', response.data);
+      console.log('☁️ نتيجة التسكين وبناء العلاقات:', response.data);
 
-    } catch (error) {
-      console.error("❌ فشل التسكين المباشر للفاتورة بجدول الشركة المعزول:", error);
-    }
+      if (response.data && response.data.success === false) {
+        throw new Error(response.data.error || 'فشل التسكين بالسيرفر');
+      }
 
-    try {
+      alert(`تم التسكين بنجاح في مخزن الشركة برقم شحنة ${purchaseWithBatch.batchInfo.batchId}`);
+      
       if (typeof onPurchaseComplete === 'function') {
         onPurchaseComplete(purchaseWithBatch);
       }
-    } catch (uiErr) {
-      console.error("خطأ تحديث الحالة المحلية:", uiErr);
-    }
 
-    alert(`تم التسكين بنجاح في مخزن الشركة برقم شحنة ${purchaseWithBatch.batchInfo.batchId}`);
-    
-    setFormData({ item: '', unit: '', quantity: '', price: '', supplier: '', paymentMethod: 'كاش', date: new Date().toISOString().split('T')[0] });
-    setIsNewItem(false);
-    setIsSubmitting(false);
-    setActiveView('menu');
+      setFormData({ item: '', unit: '', quantity: '', price: '', supplier: '', paymentMethod: 'كاش', date: new Date().toISOString().split('T')[0] });
+      setIsNewItem(false);
+      setActiveView('menu');
+
+    } catch (error) {
+      console.error("❌ فشل التسكين المباشر للفاتورة:", error);
+      alert(`عفواً، فشل حفظ الفاتورة سحابياً: ${error.message || error}`);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const purchaseColumns = [
