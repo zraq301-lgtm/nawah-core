@@ -28,7 +28,7 @@ export default async function handler(req, res) {
   try {
     console.log(`🎯 [تصفية الرمل الاحترافية] للشركة: ${safeSchema} -> جدول رئيسي: ${targetTable}`);
 
-    // خريطة الحقول المعتمدة بالملي للاسكيما
+    // خريطة الحقول المعتمدة
     const schemaFields = {
       contacts: ['id', 'name', 'type', 'phone', 'tax_number', 'current_balance'],
       items: ['id', 'barcode', 'name', 'item_type', 'available_quantity', 'cost_price', 'sale_price'],
@@ -60,7 +60,6 @@ export default async function handler(req, res) {
     let masterSql = '';
 
     if (targetTable === 'invoices') {
-      // 🌾 تصفية وفص حزمة الفاتورة
       const invoiceData = { ...data };
       
       invoiceData.gross_amount = Number(invoiceData.gross_amount || 0);
@@ -76,9 +75,21 @@ export default async function handler(req, res) {
       const invCols = Object.keys(filteredInvoice).map(k => `"${k}"`).join(', ');
       const invVals = Object.values(filteredInvoice).map(cleanValue).join(', ');
 
-      // بناء استعلامات مصفوفة الأصناف لتركيبها داخل الـ Chain
+      // تجميع الـ CTEs في مصفوفة لتجنب مشاكل الفواصل العشوائية
+      let cteParts = [];
+
+      cteParts.push(`set_path AS (
+        SELECT set_config('search_path', '${safeSchema}, public', true)
+      )`);
+
+      cteParts.push(`ins_invoice AS (
+        INSERT INTO "${safeSchema}"."invoices" (${invCols}) 
+        VALUES (${invVals}) 
+        RETURNING *
+      )`);
+
+      // بناء استعلامات مصفوفة الأصناف
       const itemsArray = data.items || data.invoice_items || [];
-      let itemInserts = [];
       if (Array.isArray(itemsArray) && itemsArray.length > 0) {
         itemsArray.forEach((item, idx) => {
           const itemDoc = {
@@ -90,18 +101,15 @@ export default async function handler(req, res) {
           const itemCols = Object.keys(filteredItem).map(k => `"${k}"`).join(', ');
           const itemVals = Object.values(filteredItem).map(cleanValue).join(', ');
 
-          itemInserts.push(`
-            ins_item_${idx} AS (
-              INSERT INTO "${safeSchema}"."invoice_items" (invoice_id, ${itemCols})
-              SELECT id, ${itemVals} FROM ins_invoice
-              RETURNING *
-            )
-          `);
+          cteParts.push(`ins_item_${idx} AS (
+            INSERT INTO "${safeSchema}"."invoice_items" (invoice_id, ${itemCols})
+            SELECT id, ${itemVals} FROM ins_invoice
+            RETURNING *
+          )`);
         });
       }
 
-      // بناء قيد حركة الخزينة تلقائياً لو تم دفع كاش
-      let cashInsertClause = '';
+      // بناء قيد حركة الخزينة تلقائياً
       if (invoiceData.paid_amount > 0) {
         const cashDoc = {
           account_id: data.account_id || 1,
@@ -113,29 +121,15 @@ export default async function handler(req, res) {
         const cashCols = Object.keys(filteredCash).map(k => `"${k}"`).join(', ');
         const cashVals = Object.values(filteredCash).map(cleanValue).join(', ');
 
-        cashInsertClause = `,
-            ins_cash AS (
-              INSERT INTO "${safeSchema}"."cash_transactions" (invoice_id, ${cashCols})
-              SELECT id, ${cashVals} FROM ins_invoice
-              RETURNING *
-            )
-        `;
+        cteParts.push(`ins_cash AS (
+          INSERT INTO "${safeSchema}"."cash_transactions" (invoice_id, ${cashCols})
+          SELECT id, ${cashVals} FROM ins_invoice
+          RETURNING *
+        )`);
       }
 
-      // 🔥 صب الـ سلاسل الفولاذية (CTE Chain) في استعلام SELECT واحد متناسق ونقي 100% لـ exec_sql
-      masterSql = `
-        WITH set_path AS (
-          SELECT set_config('search_path', '${safeSchema}, public', true)
-        ),
-        ins_invoice AS (
-          INSERT INTO "${safeSchema}"."invoices" (${invCols}) 
-          VALUES (${invVals}) 
-          RETURNING *
-        )
-        ${itemInserts.length > 0 ? ', ' + itemInserts.join(', ') : ''}
-        ${cashInsertClause}
-        SELECT ins_invoice.* FROM ins_invoice;
-      `;
+      // دمج الأجزاء بشكل نقي وبدون أي فواصل منقوطة زائدة في المنتصف
+      masterSql = `WITH ${cteParts.join(',\n')} \nSELECT ins_invoice.* FROM ins_invoice, set_path;`;
 
     } else {
       // الجداول العادية
@@ -160,9 +154,8 @@ export default async function handler(req, res) {
       `;
     }
 
-    console.log(`📝 الاستعلام الفولاذي السلس والمطهر الممرر للـ RPC:`, masterSql);
+    console.log(`📝 الاستعلام المصحح والممرر للـ RPC:`, masterSql);
 
-    // 4️⃣ تمرير الاستعلام النقي للبوابة
     const { data: sqlResult, error: sqlErr } = await supabaseAdmin
       .rpc('exec_sql', { sql_query: masterSql });
 
@@ -172,7 +165,7 @@ export default async function handler(req, res) {
 
     return res.status(200).json({ 
       success: true, 
-      message: `تمت التصفية الكيميائية بنجاح وحفظ الفاتورة وتشغيل العلاقات بالكامل جوه [${safeSchema}]`,
+      message: `تم حفظ الفاتورة وتشغيل العلاقات بنجاح داخل [${safeSchema}]`,
       data: insertedRow
     });
 
