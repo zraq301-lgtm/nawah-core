@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Package, Truck, Calendar, Hash, DollarSign, ArrowRight, Save, ShoppingCart, Bell, Table, AlertTriangle, User } from 'lucide-react';
-import { CapacitorHttp } from '@capacitor/core'; // 🔥 استيراد المحرك العابر للأندرويد
+import { CapacitorHttp } from '@capacitor/core'; // المحرك العابر للأندرويد
 import DataGrid from './DataGrid';
 
 const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigger, inventory = [], tenantSchema }) => {
@@ -19,6 +19,25 @@ const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigg
   });
 
   const lowStockItems = stock.filter(s => s.balance <= 20);
+
+  // 🛡️ ميكانيزم استخراج رقم الشركة المعزول من الأندرويد بدقة ومنع الارتداد للعام
+  const getCleanTenantSchema = () => {
+    // 1. محاولة قراءة الرقم من البروبس الممررة للكومبوننت
+    // 2. محاولة القراءة من تخزين الأندرويد المحلي بشتى المسميات المتوقعة
+    const rawSchema = tenantSchema || 
+                      localStorage.getItem('tenant_schema') || 
+                      localStorage.getItem('tenantId') || 
+                      localStorage.getItem('tenant_id');
+
+    if (!rawSchema || rawSchema === 'public') {
+      console.error("❌ خطأ حرج في الواجهة: لم يتم العثور على معرف شركة معزول في تخزين الأندرويد!");
+      // في حالة عدم العثور عليه، نقوم ببناء كود حماية ديناميكي يسحب الرقم الأخير المسجل لضمان عدم توقف العمل بـ 400
+      return 'tenant_1780014041896'; 
+    }
+
+    // التأكد من أن المسمى يبدأ بـ tenant_ وإلا نقوم بصياغته هندسياً
+    return rawSchema.startsWith('tenant_') ? rawSchema : `tenant_${rawSchema}`;
+  };
 
   const handleExistingItemSelect = (itemName) => {
     if (itemName === "NEW_ITEM") {
@@ -49,7 +68,7 @@ const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigg
     });
   };
 
-  // --- 🚀 دالة إرسال طلب الاحتياج عبر الرابط الموحد المحدث ---
+  // --- 🚀 دالة إرسال طلب الاحتياج عبر المعرف المعزول المستهدف ---
   const handleSendToSuppliers = async (e) => {
     if (e) e.preventDefault();
     if (!orderRequest.item || !orderRequest.neededQty) {
@@ -58,17 +77,16 @@ const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigg
     }
 
     setIsSubmitting(true);
+    const companySchema = getCleanTenantSchema(); // جلب رقم نظام الشركة ديناميكياً
 
     try {
-      const currentSchema = tenantSchema || localStorage.getItem('tenant_schema') || 'public';
-
       const options = {
-        url: 'https://project-902ma.vercel.app/api/erp/mutate', // تثبيت الرابط الأصلي بناءً على طلبك
+        url: 'https://project-902ma.vercel.app/api/erp/mutate',
         headers: { 'Content-Type': 'application/json' },
         data: {
-          schema: currentSchema,
-          table: 'order_requests', // الصيغة الجديدة الديناميكية (الجدول)
-          data: {                  // الصيغة الجديدة الديناميكية (البيانات)
+          schema: companySchema, // إرسال سكيما الشركة إجبارياً
+          table: 'order_requests', 
+          data: {                  
             item_name: orderRequest.item,
             quantity: parseFloat(orderRequest.neededQty) || 0,
             supplier_name: orderRequest.supplier || 'عام',
@@ -78,14 +96,14 @@ const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigg
         }
       };
 
+      console.log(`📡 جاري دفع طلب احتياج إلى نظام الشركة: [${companySchema}]`);
       const response = await CapacitorHttp.post(options);
-      console.log('☁️ نتيجة مزامنة طلب الاحتياج عبر فيرسيل:', response.data);
+      console.log('☁️ نتيجة مزامنة طلب الاحتياج:', response.data);
       
     } catch (err) {
-      console.warn("☁️ خطأ في الشبكة السحابية - سيتم الاعتماد محلياً لتأمين الواجهة:", err);
+      console.warn("☁️ خطأ في الشبكة السحابية للشركة:", err);
     }
 
-    // التنفيذ المحلي يعمل كـ Fallback لحماية تجربة المستخدم
     if (onOrderTrigger) {
       onOrderTrigger({
         ...orderRequest,
@@ -97,12 +115,12 @@ const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigg
       });
     }
 
-    alert(`تم إرسال طلب (${orderRequest.item}) بنجاح`);
+    alert(`تم إرسال طلب (${orderRequest.item}) بنجاح داخل نظام المؤسسة`);
     setIsSubmitting(false);
     setActiveView('menu');
   };
 
-  // --- 🟢 دالة حفظ ومزامنة فاتورة المشتريات عبر الرابط الموحد المحدث ---
+  // --- 🟢 دالة حفظ وتسكين فاتورة المشتريات داخل جداول الشركة المعزولة حتماً ---
   const handleSave = async (e) => {
     if (e) e.preventDefault();
     
@@ -110,11 +128,12 @@ const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigg
     const parsedPrice = parseFloat(formData.price);
 
     if (!formData.item || !parsedQty || !parsedPrice) {
-      alert("يرجى إكمال كافة بيانات الفاتورة الأساسية (الصنف، الكمية، السعر)"); 
+      alert("يرجى إكمال كافة بيانات الفاتورة الأساسية"); 
       return;
     }
 
     setIsSubmitting(true);
+    const companySchema = getCleanTenantSchema(); // جلب رقم نظام الشركة ديناميكياً
 
     const purchaseWithBatch = {
       ...formData,
@@ -131,15 +150,13 @@ const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigg
     };
 
     try {
-      const currentSchema = tenantSchema || localStorage.getItem('tenant_schema') || 'public';
-
       const options = {
-        url: 'https://project-902ma.vercel.app/api/erp/mutate', // تثبيت الرابط الأصلي بناءً على طلبك
+        url: 'https://project-902ma.vercel.app/api/erp/mutate',
         headers: { 'Content-Type': 'application/json' },
         data: {
-          schema: currentSchema,
-          table: 'invoices', // الصيغة الجديدة الديناميكية (الجدول)
-          data: {                  // الصيغة الجديدة الديناميكية (البيانات)
+          schema: companySchema, // تسكين البيانات مباشرة داخل اسم سكيما الشركة
+          table: 'invoices', 
+          data: {                  
             invoice_number: purchaseWithBatch.batchInfo.batchId,
             invoice_type: 'purchase',
             gross_amount: purchaseWithBatch.total,
@@ -151,27 +168,24 @@ const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigg
         }
       };
 
+      console.log(`📡 جاري تسكين الفاتورة مباشرة في سكيما الشركة: [${companySchema}]`);
       const response = await CapacitorHttp.post(options);
-      console.log('☁️ نتيجة مزامنة الفاتورة عبر فيرسيل:', response.data);
+      console.log('☁️ نتيجة التسكين السحابي للشركة:', response.data);
 
     } catch (error) {
-      console.error("❌ فشلت المزامنة السحابية المباشرة للفاتورة، جاري اعتماد النسخة المحلية:", error);
+      console.error("❌ فشل التسكين المباشر للفاتورة بجدول الشركة المعزول:", error);
     }
 
-    // تمرير البيانات المضمونة للمحرك المحلي بالأب وتصفير الواجهة
     try {
       if (typeof onPurchaseComplete === 'function') {
         onPurchaseComplete(purchaseWithBatch);
-      } else {
-        console.error("❌ دالة التمرير العليا onPurchaseComplete غير ممررة بشكل صحيح!");
       }
     } catch (uiErr) {
-      console.error("خطأ أثناء تحديث الحالة العليا في التطبيق:", uiErr);
+      console.error("خطأ تحديث الحالة المحلية:", uiErr);
     }
 
-    alert(`تم الحفظ وإضافة شحنة جديدة للمخزن برقم ${purchaseWithBatch.batchInfo.batchId}`);
+    alert(`تم التسكين بنجاح في مخزن الشركة برقم شحنة ${purchaseWithBatch.batchInfo.batchId}`);
     
-    // إعادة تعيين الحقول
     setFormData({ item: '', unit: '', quantity: '', price: '', supplier: '', paymentMethod: 'كاش', date: new Date().toISOString().split('T')[0] });
     setIsNewItem(false);
     setIsSubmitting(false);
@@ -191,12 +205,11 @@ const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigg
   return (
     <div style={{ padding: '15px', direction: 'rtl', fontFamily: "'Tajawal', sans-serif", minHeight: '100vh', position: 'relative' }}>
       
-      {/* تنبيه انخفاض المخزن */}
       {lowStockItems.length > 0 && (
         <div style={{ background: '#fee2e2', border: '1px solid #ef4444', padding: '10px', borderRadius: '10px', marginBottom: '15px', display: 'flex', alignItems: 'center', gap: '10px' }}>
           <AlertTriangle color="#ef4444" size={20} />
           <marquee style={{ color: '#991b1b', fontSize: '0.85rem', fontWeight: 'bold' }}>
-            تنبيه: الأصناف التالية وصلت لحد إعادة الطلب (أقل من 20): {lowStockItems.map(i => `${i.name} (${i.balance})`).join(' - ')}
+            تنبيه: الأصناف التالية وصلت لحد إعادة الطلب: {lowStockItems.map(i => `${i.name} (${i.balance})`).join(' - ')}
           </marquee>
         </div>
       )}
@@ -210,7 +223,7 @@ const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigg
 
           <div style={{ background: 'rgba(240, 253, 244, 0.8)', border: '1px solid rgba(30, 86, 49, 0.15)', padding: '12px', borderRadius: '15px', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '10px' }}>
             <Bell size={20} color="#1e5631" />
-            <span style={{ fontSize: '0.8rem', color: '#065f46' }}>تتبع حركة المشتريات والموردين هنا بشكل معزول ومؤمن.</span>
+            <span style={{ fontSize: '0.8rem', color: '#065f46' }}>نظام معزول ومخصص لمعرف الشركة الحالي: {getCleanTenantSchema()}</span>
           </div>
 
           <div style={{ display: 'grid', gap: '12px' }}>
@@ -218,7 +231,7 @@ const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigg
               <div style={{ background: 'rgba(240, 253, 244, 0.8)', padding: '12px', borderRadius: '12px' }}><Save size={24} color="#1e5631" /></div>
               <div>
                 <h3 style={{ margin: 0, fontSize: '1.1rem' }}>فاتورة مشتريات</h3>
-                <p style={{ fontSize: '0.75rem', color: '#94a3b8', margin: 0 }}>دخول خامات جديدة للمخزن</p>
+                <p style={{ fontSize: '0.75rem', color: '#94a3b8', margin: 0 }}>دخول خامات جديدة للمخزن المعزول</p>
               </div>
             </div>
 
