@@ -4,12 +4,13 @@ const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 if (!supabaseUrl || !supabaseServiceKey) {
-  console.error("خطأ حرج: متغيرات بيئة العمل لـ Supabase غير معرفة!");
+  console.error("خطأ حرج: متغيرات بيئة العمل لـ Supabase غير معرفة في إعدادات Vercel!");
 }
 
 const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
 export default async function handler(req, res) {
+  // تفعيل إعدادات الـ CORS الكاملة لتأمين استقرار حركة المرور مع الأندرويد
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -17,88 +18,56 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ success: false, error: 'استخدم POST' });
 
+  // استقبال المعطيات الديناميكية القادمة من الأندرويد
   const { schema, table, action, data } = req.body;
 
+  // تحديد اسم الجدول ديناميكياً بناءً على طلب الواجهة
   let targetTable = table || (action && action.toLowerCase().replace('add_', '') + 's');
-  if (action === 'ADD_PURCHASE_INVOICE') targetTable = 'invoices'; // توجيه دقيق لجدول الفواتير المستهدف
+  if (action === 'ADD_PURCHASE_INVOICE') targetTable = 'invoices'; 
 
-  if (!targetTable || !data) {
-    return res.status(400).json({ success: false, error: 'البيانات المرسلة ناقصة' });
+  if (!schema || !targetTable || !data) {
+    return res.status(400).json({ 
+      success: false, 
+      error: 'البيانات المرسلة ناقصة. يتطلب النظام: (schema, table, data)' 
+    });
   }
 
-  // 🛡️ التعامل الذكي مع خطأ السكيما غير المعرفة (Exposed Schema)
-  // إذا كانت السكيما تبدأ بـ tenant_، سنقوم بالحفظ في السكيما الافتراضية المتاحة public
-  // وحقن اسم السكيما كمعرف للمؤسسة (tenant_id) لضمان عدم اختلاط البيانات وسهولة الفلترة
-  let activeSchema = 'public'; 
-  const cleanedData = {};
+  // 📥 تسكين البيانات مباشرة كما هي قادمة من الواجهة دون اللعب في أسماء الأعمدة لضمان التطابق
+  const finalPayload = { ...data };
 
-  // تنظيف الحقول وتحويلها إلى snake_case
-  Object.keys(data).forEach(key => {
-    const databaseKey = key.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
-    cleanedData[databaseKey] = data[key];
-  });
-
-  if (cleanedData.batch_info) {
-    cleanedData.batch_id = cleanedData.batch_info.batchId || cleanedData.batch_id;
-    delete cleanedData.batch_info;
-  }
-
-  // 🔥 ميكانيزم الإنقاذ: إذا كانت المؤسسة ممررة كسكيما معزولة والسيرفر لا يراها،
-  // نضعها داخل حقل tenant_id في جدول public.invoices (تأكد من وجود هذا الحقل بالجدول إن أمكن)
-  if (schema && schema !== 'public') {
-    cleanedData.tenant_id = schema; 
-    
-    // 💡 ملحوظة: إذا كنت قد قمت بتهيئة Exposed Schemas في سوبابيز بالفعل وتريد الحفظ في السكيما المعزولة حتماً،
-    // فقم بإلغاء تعليق السطر التالي:
-    // activeSchema = schema; 
+  // إذا كانت البيانات تحتوي على تفاصيل شحنة فرعية معقدة، نضع معرف الشحنة في مكانه ونحذف الكائن الفرعي
+  if (finalPayload.batch_info) {
+    finalPayload.batch_id = finalPayload.batch_info.batchId || finalPayload.batch_id;
+    delete finalPayload.batch_info;
   }
 
   try {
-    console.log(`🚀 محاولة حفر آمنة في [${activeSchema}].[${targetTable}]:`, cleanedData);
+    console.log(`🎯 جاري تسكين البيانات مباشرة داخل سكيما الشركة [${schema}] - جدول [${targetTable}]:`, finalPayload);
 
-    const { data: dbResult, error: dbErr } = await supabaseAdmin
-      .schema(activeSchema)
-      .from(targetTable)
-      .insert([cleanedData])
-      .select();
+    // 🚀 استدعاء دالة الـ RPC لحقن وتسكين البيانات فوراً في سكيما الشركة الصحيحة
+    const { data: rpcResult, error: rpcErr } = await supabaseAdmin
+      .rpc('insert_dynamic_tenant_data', {
+        p_schema: schema,       // رقم الشركة القادم من الواجهة (tenant_xxxxxxxx)
+        p_table: targetTable,   // الجدول المطلوب التسكين فيه داخل السكيما
+        p_data: finalPayload    // البيانات الصافية المتطابقة مع أعمدة الجدول
+      });
 
-    if (dbErr) throw dbErr;
+    if (rpcErr) throw rpcErr;
 
+    // الرد بالنجاح وإرجاع السطر الذي تم تسكينه وحفظه
     return res.status(200).json({ 
       success: true, 
-      message: `تم حفر البيانات بنجاح في جدول ${targetTable}`,
-      data: dbResult && dbResult.length > 0 ? dbResult[0] : null 
+      message: `تم تسكين البيانات بنجاح داخل النظام المعزول للشركة [${schema}]`,
+      table: targetTable,
+      data: rpcResult
     });
 
   } catch (error) {
-    console.error(`❌ خطأ أثناء الحفظ:`, error);
-    
-    // إذا رمى السيرفر خطأ السكيما مرة أخرى، نقوم بمحاولة أخيرة إجبارية في سكيما public الصريحة
-    if (error.message && error.message.includes('Invalid schema')) {
-      try {
-        console.log(`🔄 محاولة إنقاذ اضطرارية في السكيما العامة public...`);
-        const { data: retryResult, error: retryErr } = await supabaseAdmin
-          .schema('public')
-          .from(targetTable)
-          .insert([cleanedData])
-          .select();
-
-        if (retryErr) throw retryErr;
-
-        return res.status(200).json({ 
-          success: true, 
-          message: `تم الحفظ عبر محرك الإنقاذ في السكيما العامة`,
-          data: retryResult && retryResult.length > 0 ? retryResult[0] : null 
-        });
-      } catch (retryFetchError) {
-        return res.status(400).json({ success: false, error: retryFetchError.message });
-      }
-    }
-
+    console.error(`❌ خطأ أثناء التسكين في سكيما الشركة [${schema}]:`, error);
     return res.status(400).json({ 
       success: false, 
       error: error.message || error,
-      code: error.code
+      details: error.details || "تأكد من أن جميع الحقول المرسلة تطابق أسماء أعمدة الجدول تماماً"
     });
   }
 }
