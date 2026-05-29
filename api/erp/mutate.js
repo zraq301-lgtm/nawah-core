@@ -75,20 +75,16 @@ export default async function handler(req, res) {
       const invCols = Object.keys(filteredInvoice).map(k => `"${k}"`).join(', ');
       const invVals = Object.values(filteredInvoice).map(cleanValue).join(', ');
 
-      // تجميع الـ CTEs في مصفوفة لتجنب مشاكل الفواصل العشوائية
       let cteParts = [];
 
-      cteParts.push(`set_path AS (
-        SELECT set_config('search_path', '${safeSchema}, public', true)
-      )`);
-
+      // الإدخال الأول والأساسي للفاتورة
       cteParts.push(`ins_invoice AS (
         INSERT INTO "${safeSchema}"."invoices" (${invCols}) 
         VALUES (${invVals}) 
         RETURNING *
       )`);
 
-      // بناء استعلامات مصفوفة الأصناف
+      // بناء استعلامات مصفوفة الأصناف بشكل متسلسل ومحدد الاسكيما بدقة
       const itemsArray = data.items || data.invoice_items || [];
       if (Array.isArray(itemsArray) && itemsArray.length > 0) {
         itemsArray.forEach((item, idx) => {
@@ -109,7 +105,7 @@ export default async function handler(req, res) {
         });
       }
 
-      // بناء قيد حركة الخزينة تلقائياً
+      // بناء قيد حركة الخزينة تلقائياً عند وجود مدفوعات
       if (invoiceData.paid_amount > 0) {
         const cashDoc = {
           account_id: data.account_id || 1,
@@ -128,11 +124,11 @@ export default async function handler(req, res) {
         )`);
       }
 
-      // دمج الأجزاء بشكل نقي وبدون أي فواصل منقوطة زائدة في المنتصف
-      masterSql = `WITH ${cteParts.join(',\n')} \nSELECT ins_invoice.* FROM ins_invoice, set_path;`;
+      // تجميع الـ CTE بالكامل بشكل سليم برمجياً والـ SELECT الأخير يعود ببيانات الفاتورة المدرجة مباشرة
+      masterSql = `WITH ${cteParts.join(',\n')} \nSELECT * FROM ins_invoice;`;
 
     } else {
-      // الجداول العادية
+      // الجداول العادية الأخرى البسيطة
       const filteredPayload = extractTablePayload(data, targetTable);
       if (!filteredPayload) {
         throw new Error(`البيانات لا تطابق حقول جدول [${targetTable}] في الاسكيما.`);
@@ -142,19 +138,16 @@ export default async function handler(req, res) {
       const values = Object.values(filteredPayload).map(cleanValue).join(', ');
 
       masterSql = `
-        WITH set_path AS (
-          SELECT set_config('search_path', '${safeSchema}, public', true)
-        ),
-        rows AS (
+        WITH rows AS (
           INSERT INTO "${safeSchema}"."${targetTable}" (${columns}) 
           VALUES (${values}) 
           RETURNING *
         ) 
-        SELECT rows.* FROM rows, set_path;
+        SELECT * FROM rows;
       `;
     }
 
-    console.log(`📝 الاستعلام المصحح والممرر للـ RPC:`, masterSql);
+    console.log(`📝 الاستعلام النقي الممرر للـ RPC بعد الإصلاح الإستراتيجي:`, masterSql);
 
     const { data: sqlResult, error: sqlErr } = await supabaseAdmin
       .rpc('exec_sql', { sql_query: masterSql });
@@ -165,7 +158,7 @@ export default async function handler(req, res) {
 
     return res.status(200).json({ 
       success: true, 
-      message: `تم حفظ الفاتورة وتشغيل العلاقات بنجاح داخل [${safeSchema}]`,
+      message: `تم حفظ الفاتورة وتشغيل العلاقات بنجاح داخل الاسكيما [${safeSchema}]`,
       data: insertedRow
     });
 
@@ -174,7 +167,7 @@ export default async function handler(req, res) {
     return res.status(400).json({ 
       success: false, 
       error: error.message,
-      details: "تأكد من مطابقة الحقول الأساسية وجرب الحفظ مرة أخرى."
+      details: "تأكد من مطابقة أسماء حقول الجداول داخل تصفية قواعد البيانات وجرب مجدداً."
     });
   }
 }
