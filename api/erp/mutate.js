@@ -31,9 +31,9 @@ export default async function handler(req, res) {
   }
 
   try {
-    console.log(`🚀 [تنشيط مسار العلاقات] جاري التسكين الآمن في: ${safeSchema}.${targetTable}`);
+    console.log(`🎯 [الحقن المباشر في المسار المفتوح] سكيما: ${safeSchema} -> جدول: ${targetTable}`);
 
-    // 1️⃣ بناء أسماء الأعمدة
+    // 1️⃣ بناء أسماء الأعمدة بشكل آمن
     const columns = Object.keys(finalPayload).map(key => `"${key}"`).join(', ');
 
     // 2️⃣ بناء وتحضير القيم
@@ -43,23 +43,23 @@ export default async function handler(req, res) {
       return `'${String(val).replace(/'/g, "''")}'`;
     }).join(', ');
 
-    // 3️⃣ 🔥 الاستعلام الفولاذي المطور:
-    // نستخدم set_config لضبط الـ search_path بشكل مدمج (Inline) يتوافق مع الدالة 100%
+    // 3️⃣ 🔥 الاستعلام الفولاذي المبسط:
+    // نقوم بضبط الـ search_path أولاً، ثم نكتب في الجدول مباشرة بدون سوابق لمنع ارتباك المحرك وتشغيل كافة العلاقات
     const rawSql = `
       WITH set_path AS (
         SELECT set_config('search_path', '${safeSchema}, public', true)
       ),
       rows AS (
-        INSERT INTO "${safeSchema}"."${targetTable}" (${columns}) 
+        INSERT INTO "${targetTable}" (${columns}) 
         VALUES (${values}) 
         RETURNING *
       ) 
       SELECT rows.* FROM rows, set_path
     `;
     
-    console.log(`📝 الاستعلام النقي المدمج والجاهز للحقن:`, rawSql);
+    console.log(`📝 الاستعلام النهائي الخالي من التعقيد:`, rawSql);
 
-    // 4️⃣ تمرير الاستعلام النظيف للبوابة
+    // 4️⃣ تمرير الاستعلام للبوابة
     const { data: sqlResult, error: sqlErr } = await supabaseAdmin
       .rpc('exec_sql', { sql_query: rawSql });
 
@@ -69,7 +69,7 @@ export default async function handler(req, res) {
 
     return res.status(200).json({ 
       success: true, 
-      message: `تم حفظ الفاتورة وتنشيط العلاقات والترجرات بنجاح كامل داخل [${safeSchema}]`,
+      message: `تم كسر الدائرة وحفظ الفاتورة بنجاح وتشغيل كافة العلاقات داخل [${safeSchema}]`,
       data: insertedRow
     });
 
@@ -78,7 +78,7 @@ export default async function handler(req, res) {
     return res.status(400).json({ 
       success: false, 
       error: error.message,
-      details: "تأكد من صحة البيانات المرسلة وأن الـ contact_id موجود في جدول العلاقات الحالية للعميل."
+      details: "تأكد من صحة قيم الحقول المرسلة ومطابقتها لعلاقات الجدول."
     });
   }
 }
