@@ -26,9 +26,9 @@ export default async function handler(req, res) {
   }
 
   try {
-    console.log(`🎯 [تصفية الرمل الاحترافية] للشركة: ${safeSchema} -> جدول رئيسي: ${targetTable}`);
+    console.log(`🚀 [تسكين مباشر بدون استعلام نصي] الاسكيما: ${safeSchema} -> الجدول: ${targetTable}`);
 
-    // خريطة الحقول المعتمدة
+    // خريطة الحقول المعتمدة لكل جدول في قاعدة البيانات
     const schemaFields = {
       contacts: ['id', 'name', 'type', 'phone', 'tax_number', 'current_balance'],
       items: ['id', 'barcode', 'name', 'item_type', 'available_quantity', 'cost_price', 'sale_price'],
@@ -40,28 +40,25 @@ export default async function handler(req, res) {
       system_logs: ['id', 'user_id', 'action', 'old_details', 'new_details', 'created_at']
     };
 
-    const cleanValue = (val) => {
-      if (val === null || val === undefined || val === '') return 'NULL';
-      if (typeof val === 'number' || typeof val === 'boolean') return val;
-      if (typeof val === 'object') return `'${JSON.stringify(val).replace(/'/g, "''")}'`;
-      return `'${String(val).trim().replace(/'/g, "''")}'`;
-    };
-
+    // دالة تصفية الحقول لمنع أخطاء الحقول غير الموجودة بالـ Database
     const extractTablePayload = (rawDataset, tableName) => {
       const allowedFields = schemaFields[tableName];
       if (!allowedFields) return null;
       const payload = {};
       allowedFields.forEach(field => {
-        if (rawDataset[field] !== undefined) payload[field] = rawDataset[field];
+        if (rawDataset[field] !== undefined && rawDataset[field] !== '') {
+          payload[field] = rawDataset[field];
+        }
       });
       return Object.keys(payload).length > 0 ? payload : null;
     };
 
-    let masterSql = '';
+    let responseData = null;
 
     if (targetTable === 'invoices') {
       const invoiceData = { ...data };
       
+      // جهوزية واحتساب الأرقام للفاتورة
       invoiceData.gross_amount = Number(invoiceData.gross_amount || 0);
       invoiceData.discount = Number(invoiceData.discount || 0);
       invoiceData.tax_amount = Number(invoiceData.tax_amount || 0);
@@ -72,102 +69,88 @@ export default async function handler(req, res) {
       invoiceData.invoice_type = invoiceData.invoice_type || (action?.toLowerCase().includes('purchase') ? 'purchase' : 'sale');
 
       const filteredInvoice = extractTablePayload(invoiceData, 'invoices');
-      const invCols = Object.keys(filteredInvoice).map(k => `"${k}"`).join(', ');
-      const invVals = Object.values(filteredInvoice).map(cleanValue).join(', ');
+      
+      // 1. تسكين الفاتورة في جدول الاسكيما مباشرة
+      const { data: insertedInvoice, error: invErr } = await supabaseAdmin
+        .from(`${safeSchema}.invoices`)
+        .insert([filteredInvoice])
+        .select()
+        .single();
 
-      let cteParts = [];
+      if (invErr) throw invErr;
+      responseData = insertedInvoice;
 
-      // الإدخال الأول والأساسي للفاتورة
-      cteParts.push(`ins_invoice AS (
-        INSERT INTO "${safeSchema}"."invoices" (${invCols}) 
-        VALUES (${invVals}) 
-        RETURNING *
-      )`);
-
-      // بناء استعلامات مصفوفة الأصناف بشكل متسلسل ومحدد الاسكيما بدقة
+      // 2. تسكين مصفوفة الأصناف المرتبطة بالفاتورة تلقائياً (إن وجدت)
       const itemsArray = data.items || data.invoice_items || [];
       if (Array.isArray(itemsArray) && itemsArray.length > 0) {
-        itemsArray.forEach((item, idx) => {
+        const filteredItemsPayload = itemsArray.map(item => {
           const itemDoc = {
+            invoice_id: insertedInvoice.id, // ربط الـ Foreign Key بالفاتورة المنشأة حالياً
             item_id: item.id || item.item_id,
             quantity: Number(item.quantity || 1),
             unit_price: Number(item.price || item.unit_price || 0)
           };
-          const filteredItem = extractTablePayload(itemDoc, 'invoice_items');
-          const itemCols = Object.keys(filteredItem).map(k => `"${k}"`).join(', ');
-          const itemVals = Object.values(filteredItem).map(cleanValue).join(', ');
+          return extractTablePayload(itemDoc, 'invoice_items');
+        }).filter(Boolean);
 
-          cteParts.push(`ins_item_${idx} AS (
-            INSERT INTO "${safeSchema}"."invoice_items" (invoice_id, ${itemCols})
-            SELECT id, ${itemVals} FROM ins_invoice
-            RETURNING *
-          )`);
-        });
+        if (filteredItemsPayload.length > 0) {
+          const { error: itemsErr } = await supabaseAdmin
+            .from(`${safeSchema}.invoice_items`)
+            .insert(filteredItemsPayload);
+          
+          if (itemsErr) console.error("⚠️ خطأ غير حرج أثناء إدراج حزمة الأصناف:", itemsErr.message);
+        }
       }
 
-      // بناء قيد حركة الخزينة تلقائياً عند وجود مدفوعات
+      // 3. تسكين حركة الخزينة التلقائية في حال وجود كاش مدفوع
       if (invoiceData.paid_amount > 0) {
         const cashDoc = {
+          invoice_id: insertedInvoice.id,
           account_id: data.account_id || 1,
           flow_type: invoiceData.invoice_type === 'sale' ? 'in' : 'out',
           amount: invoiceData.paid_amount,
           description: `دفعة نقدية تلقائية للفاتورة رقم: ${invoiceData.invoice_number}`
         };
         const filteredCash = extractTablePayload(cashDoc, 'cash_transactions');
-        const cashCols = Object.keys(filteredCash).map(k => `"${k}"`).join(', ');
-        const cashVals = Object.values(filteredCash).map(cleanValue).join(', ');
-
-        cteParts.push(`ins_cash AS (
-          INSERT INTO "${safeSchema}"."cash_transactions" (invoice_id, ${cashCols})
-          SELECT id, ${cashVals} FROM ins_invoice
-          RETURNING *
-        )`);
+        
+        if (filteredCash) {
+          const { error: cashErr } = await supabaseAdmin
+            .from(`${safeSchema}.cash_transactions`)
+            .insert([filteredCash]);
+          
+          if (cashErr) console.error("⚠️ خطأ غير حرج أثناء إدراج حركة النقدية:", cashErr.message);
+        }
       }
 
-      // تجميع الـ CTE بالكامل بشكل سليم برمجياً والـ SELECT الأخير يعود ببيانات الفاتورة المدرجة مباشرة
-      masterSql = `WITH ${cteParts.join(',\n')} \nSELECT * FROM ins_invoice;`;
-
     } else {
-      // الجداول العادية الأخرى البسيطة
+      // التعامل المباشر مع الجداول العادية الأخرى البسيطة
       const filteredPayload = extractTablePayload(data, targetTable);
       if (!filteredPayload) {
         throw new Error(`البيانات لا تطابق حقول جدول [${targetTable}] في الاسكيما.`);
       }
 
-      const columns = Object.keys(filteredPayload).map(key => `"${key}"`).join(', ');
-      const values = Object.values(filteredPayload).map(cleanValue).join(', ');
+      const { data: insertedRow, error: tableErr } = await supabaseAdmin
+        .from(`${safeSchema}.${targetTable}`)
+        .insert([filteredPayload])
+        .select()
+        .single();
 
-      masterSql = `
-        WITH rows AS (
-          INSERT INTO "${safeSchema}"."${targetTable}" (${columns}) 
-          VALUES (${values}) 
-          RETURNING *
-        ) 
-        SELECT * FROM rows;
-      `;
+      if (tableErr) throw tableErr;
+      responseData = insertedRow;
     }
-
-    console.log(`📝 الاستعلام النقي الممرر للـ RPC بعد الإصلاح الإستراتيجي:`, masterSql);
-
-    const { data: sqlResult, error: sqlErr } = await supabaseAdmin
-      .rpc('exec_sql', { sql_query: masterSql });
-
-    if (sqlErr) throw sqlErr;
-
-    const insertedRow = (Array.isArray(sqlResult) && sqlResult.length > 0) ? sqlResult[0] : sqlResult;
 
     return res.status(200).json({ 
       success: true, 
-      message: `تم حفظ الفاتورة وتشغيل العلاقات بنجاح داخل الاسكيما [${safeSchema}]`,
-      data: insertedRow
+      message: `تم تسكين البيانات والمزامنة السحابية بنجاح داخل الاسكيما [${safeSchema}] والجدول [${targetTable}]`,
+      data: responseData
     });
 
   } catch (error) {
-    console.error(`❌ فشل التسكين والتصفية:`, error.message);
+    console.error(`❌ فشل تسكين البيانات المباشر:`, error.message);
     return res.status(400).json({ 
       success: false, 
       error: error.message,
-      details: "تأكد من مطابقة أسماء حقول الجداول داخل تصفية قواعد البيانات وجرب مجدداً."
+      details: "فشل التحقق من صحة البيانات أو قيود الجداول المباشرة."
     });
   }
 }
