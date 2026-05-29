@@ -31,33 +31,35 @@ export default async function handler(req, res) {
   }
 
   try {
-    console.log(`🚀 [تشغيل العلاقات الفولاذية] جاري التسكين الديناميكي في: ${safeSchema}.${targetTable}`);
+    console.log(`🚀 [تنشيط مسار العلاقات] جاري التسكين الآمن في: ${safeSchema}.${targetTable}`);
 
-    // 1️⃣ بناء أسماء الأعمدة بشكل آمن
+    // 1️⃣ بناء أسماء الأعمدة
     const columns = Object.keys(finalPayload).map(key => `"${key}"`).join(', ');
 
-    // 2️⃣ بناء وتحضير القيم مع الحفاظ على الـ contact_id القادم من الأندرويد كما هو
+    // 2️⃣ بناء وتحضير القيم
     const values = Object.values(finalPayload).map(val => {
       if (val === null || val === undefined) return 'NULL';
       if (typeof val === 'number' || typeof val === 'boolean') return val;
       return `'${String(val).replace(/'/g, "''")}'`;
     }).join(', ');
 
-    // 3️⃣ 🔥 السر الهندي السحري: 
-    // تحويل مسار البحث الافتراضي إلى السكيما الحالية إجبارياً قبل الإدخال لكي ترى الجداول بعضها وتعمل العلاقات والـ Triggers بنجاح!
+    // 3️⃣ 🔥 الاستعلام الفولاذي المطور:
+    // نستخدم set_config لضبط الـ search_path بشكل مدمج (Inline) يتوافق مع الدالة 100%
     const rawSql = `
-      SET LOCAL search_path TO "${safeSchema}", public;
-      WITH rows AS (
+      WITH set_path AS (
+        SELECT set_config('search_path', '${safeSchema}, public', true)
+      ),
+      rows AS (
         INSERT INTO "${safeSchema}"."${targetTable}" (${columns}) 
         VALUES (${values}) 
         RETURNING *
       ) 
-      SELECT * FROM rows;
+      SELECT rows.* FROM rows, set_path
     `;
     
-    console.log(`📝 الاستعلام الخارق الموجه بموجات العلاقات:`, rawSql);
+    console.log(`📝 الاستعلام النقي المدمج والجاهز للحقن:`, rawSql);
 
-    // 4️⃣ تمرير الاستعلام الفولاذي للبوابة
+    // 4️⃣ تمرير الاستعلام النظيف للبوابة
     const { data: sqlResult, error: sqlErr } = await supabaseAdmin
       .rpc('exec_sql', { sql_query: rawSql });
 
@@ -67,7 +69,7 @@ export default async function handler(req, res) {
 
     return res.status(200).json({ 
       success: true, 
-      message: `تم حفظ البيانات وتنشيط العلاقات والترجرات بنجاح داخل [${safeSchema}]`,
+      message: `تم حفظ الفاتورة وتنشيط العلاقات والترجرات بنجاح كامل داخل [${safeSchema}]`,
       data: insertedRow
     });
 
@@ -76,7 +78,7 @@ export default async function handler(req, res) {
     return res.status(400).json({ 
       success: false, 
       error: error.message,
-      details: "تأكد من أن الـ contact_id أو الـ item_id المرسل من الموبايل موجود بالفعل في جدول جهات العميل."
+      details: "تأكد من صحة البيانات المرسلة وأن الـ contact_id موجود في جدول العلاقات الحالية للعميل."
     });
   }
 }
