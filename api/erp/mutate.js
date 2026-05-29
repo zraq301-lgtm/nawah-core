@@ -20,12 +20,15 @@ export default async function handler(req, res) {
 
   const { schema, table, action, data } = req.body;
 
-  let targetTable = table || (action && action.toLowerCase().replace('add_', '') + 's');
-  if (action === 'ADD_PURCHASE_INVOICE') targetTable = 'invoices'; 
-
-  if (!schema || !targetTable || !data) {
+  if (!schema || !data) {
     return res.status(400).json({ success: false, error: 'البيانات المرسلة ناقصة' });
   }
+
+  // 🔥 التأمين الفولاذي: تحويل اسم السكيما لحروف صغيرة إجبارياً لمنع أخطاء الـ Case Sensitivity
+  const safeSchema = String(schema).trim().toLowerCase();
+
+  let targetTable = table || (action && action.toLowerCase().replace('add_', '') + 's');
+  if (action === 'ADD_PURCHASE_INVOICE') targetTable = 'invoices'; 
 
   const finalPayload = { ...data };
 
@@ -35,11 +38,11 @@ export default async function handler(req, res) {
   }
 
   try {
-    console.log(`🎯 [محاولة 1] تسكين في سكيما: [${schema}] - جدول: [${targetTable}]`);
+    console.log(`🎯 [محاولة 1] تسكين في سكيما: [${safeSchema}] - جدول: [${targetTable}]`);
 
-    // المحاولة القياسية المباشرة
+    // التوجيه المباشر باستخدام السكيما الآمنة الصغيرة
     const { data: insertResult, error: insertErr } = await supabaseAdmin
-      .schema(schema)
+      .schema(safeSchema)
       .from(targetTable)
       .insert([finalPayload])
       .select();
@@ -48,27 +51,23 @@ export default async function handler(req, res) {
 
     return res.status(200).json({ 
       success: true, 
-      message: `تم التسكين بنجاح داخل النظام المعزول للشركة [${schema}]`,
+      message: `تم التسكين بنجاح داخل النظام المعزول للشركة [${safeSchema}]`,
       data: insertResult[0]
     });
 
   } catch (firstError) {
-    // 🔄 إذا كان الخطأ بسبب الكاش PGRST202، نقوم بعمل Reload للكاش فوراً
+    // إذا كان الخطأ بسبب تجمد الكاش الداخلي لسوبابيز
     if (firstError.code === 'PGRST202' || firstError.message?.includes('schema cache')) {
-      console.warn(`🔄 تم رصد تجميد في الكاش. جاري إجبار سوبابيز على تحديث الـ Schema Cache فوراً...`);
+      console.warn(`🔄 تم رصد تجميد في الكاش لجلسة [${safeSchema}]. جاري التحديث الفوري...`);
       
       try {
-        // إطلاق أمر إعادة تحميل الكاش الداخلي لسوبابيز
         await supabaseAdmin.rpc('NOTIFY pgrst, \'reload schema\'');
-        
-        // انتظار لمدة ثانية واحدة ليتنفس السيرفر ويستوعب الجداول الجديدة
         await new Promise(resolve => setTimeout(resolve, 1200));
 
-        console.log(`🚀 [محاولة 2] إعادة المحاولة بعد تحديث الكاش بنجاح...`);
+        console.log(`🚀 [محاولة 2] إعادة المحاولة باستخدام السكيما المعالجة...`);
         
-        // إعادة المحاولة الفولاذية بعد تحديث الكاش
         const { data: retryResult, error: retryErr } = await supabaseAdmin
-          .schema(schema)
+          .schema(safeSchema)
           .from(targetTable)
           .insert([finalPayload])
           .select();
@@ -77,21 +76,17 @@ export default async function handler(req, res) {
 
         return res.status(200).json({ 
           success: true, 
-          message: `تم التسكين بنجاح بعد تحديث كاش النظام المعزول [${schema}]`,
+          message: `تم التسكين بنجاح بعد تحديث كاش النظام المعزول [${safeSchema}]`,
           data: retryResult[0]
         });
 
       } catch (secondError) {
-        console.error(`❌ فشلت محاولة الإنقاذ الثانية أيضاً:`, secondError);
-        return res.status(400).json({ 
-          success: false, 
-          error: secondError.message || secondError,
-          details: "تأكد من أن السكيما والجداول اكتمل حفرها بالخلفية تماماً وأن الأعمدة متطابقة."
-        });
+        console.error(`❌ فشلت محاولة الإنقاذ الثانية:`, secondError);
+        return res.status(400).json({ success: false, error: secondError.message || secondError });
       }
     }
 
-    // في حال وجود خطأ آخر غير الكاش (مثل خطأ في أسماء الأعمدة)
+    console.error(`❌ خطأ التسكين الرئيسي للمخطط [${safeSchema}]:`, firstError.message);
     return res.status(400).json({ success: false, error: firstError.message, details: firstError.details });
   }
 }
