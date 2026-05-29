@@ -6,6 +6,7 @@ const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
 export default async function handler(req, res) {
+  // تفعيل إعدادات الـ CORS الكاملة للأندرويد
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
@@ -19,7 +20,7 @@ export default async function handler(req, res) {
     return res.status(400).json({ success: false, error: 'البيانات المرسلة ناقصة' });
   }
 
-  // تنظيف الحروف وتحويلها لصغيرة
+  // تنظيف وتأمين الحروف
   const safeSchema = String(schema).trim().toLowerCase();
   let targetTable = table || (action && action.toLowerCase().replace('add_', '') + 's');
   if (action === 'ADD_PURCHASE_INVOICE') targetTable = 'invoices'; 
@@ -31,29 +32,39 @@ export default async function handler(req, res) {
   }
 
   try {
-    console.log(`🚀 [الحل الفولاذي] تسكين مباشر بالـ SQL النقي في: ${safeSchema}.${targetTable}`);
+    console.log(`🚀 [معالجة الـ Syntax] تحضير الاستعلام لـ ${safeSchema}.${targetTable}`);
 
-    // بناء استعلام SQL ديناميكي خارق لقيود الـ Exposed Schemas والكاش
+    // 1️⃣ بناء أسماء الأعمدة بشكل آمن ومحاط بأقواس مزدوجة
     const columns = Object.keys(finalPayload).map(key => `"${key}"`).join(', ');
+
+    // 2️⃣ تحضير وتغليف القيم بشكل صارم لمنع الأخطاء العشوائية للنصوص والتواريخ
     const values = Object.values(finalPayload).map(val => {
+      if (val === null || val === undefined) return 'NULL';
       if (typeof val === 'number' || typeof val === 'boolean') return val;
-      if (val === null) return 'NULL';
-      return `'${String(val).replace(/'/g, "''")}'`; // حماية ضد SQL Injection
+      
+      // تأمين الحقول النصية والتواريخ ضد الـ SQL Injection والرموز الخاصة
+      const safeString = String(val).replace(/'/g, "''");
+      return `'${safeString}'`;
     }).join(', ');
 
-    // الاستعلام النقي الموجه مباشرة للسكيما المعزولة
-    const rawSql = `INSERT INTO "${safeSchema}"."${targetTable}" (${columns}) VALUES (${values}) RETURNING *;`;
+    // 3️⃣ 🔥 الصياغة الاحترافية المعدلة (تغليف الـ INSERT داخل تعبير SELECT متوافق مع البوابة)
+    const rawSql = `WITH rows AS (INSERT INTO "${safeSchema}"."${targetTable}" (${columns}) VALUES (${values}) RETURNING *) SELECT * FROM rows`;
+    
+    console.log(`📝 الاستعلام النقي النهائي الجاهز للحقن البنائي:`, rawSql);
 
-    // استدعاء دالة تشغيل الـ SQL المباشرة في سوبابيز (تأكد من وجود دالة exec_sql أو query لديك في الـ RPC)
+    // 4️⃣ استدعاء الدالة المساعدة الخارقة
     const { data: sqlResult, error: sqlErr } = await supabaseAdmin
-      .rpc('exec_sql', { sql_query: rawSql }); // أو اسم دالة الـ rpc المخصصة للـ SQL عندك مثل 'query'
+      .rpc('exec_sql', { sql_query: rawSql });
 
     if (sqlErr) throw sqlErr;
 
+    // الدالة تعيد النتيجة داخل مصفوفة JSON، نسحب السطر الأول والأحدث
+    const insertedRow = (Array.isArray(sqlResult) && sqlResult.length > 0) ? sqlResult[0] : sqlResult;
+
     return res.status(200).json({ 
       success: true, 
-      message: `تم التسكين بنجاح قطعي عبر محرك الـ SQL في [${safeSchema}]`,
-      data: sqlResult
+      message: `تم التسكين وحفظ البيانات بنجاح في السكيما المعزولة [${safeSchema}]`,
+      data: insertedRow
     });
 
   } catch (error) {
@@ -61,7 +72,7 @@ export default async function handler(req, res) {
     return res.status(400).json({ 
       success: false, 
       error: error.message,
-      details: "إذا فشل الـ RPC، يرجى التأكد من إضافة السكيما في Exposed Schemas داخل لوحة تحكم سوبابيز"
+      details: "تأكد من مطابقة أسماء حقول الكائن في الأندرويد مع أسماء أعمدة الجدول في الداتابيز."
     });
   }
 }
