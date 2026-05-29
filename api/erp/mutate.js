@@ -43,18 +43,18 @@ export default async function handler(req, res) {
       return `'${String(val).replace(/'/g, "''")}'`;
     }).join(', ');
 
-    // 3️⃣ 🔥 الاستعلام الفولاذي المبسط:
-    // نقوم بضبط الـ search_path أولاً، ثم نكتب في الجدول مباشرة بدون سوابق لمنع ارتباك المحرك وتشغيل كافة العلاقات
+    // 3️⃣ 🔥 الاستعلام المطور والمضمون هندسياً:
+    // نقوم بتحديد اسم السكيما بشكل صريح تماماً ومباشر أثناء الإدخال لكسر ارتباك المحرك، 
+    // مع الإبقاء على ضبط الـ search_path لضمان عمل الـ Triggers والعلاقات الداخلية بدون مشاكل.
     const rawSql = `
-      WITH set_path AS (
-        SELECT set_config('search_path', '${safeSchema}, public', true)
-      ),
-      rows AS (
-        INSERT INTO "${targetTable}" (${columns}) 
-        VALUES (${values}) 
-        RETURNING *
-      ) 
-      SELECT rows.* FROM rows, set_path
+      DO $$ 
+      BEGIN 
+        PERFORM set_config('search_path', '${safeSchema}, public', true); 
+      END $$;
+
+      INSERT INTO "${safeSchema}"."${targetTable}" (${columns}) 
+      VALUES (${values}) 
+      RETURNING *;
     `;
     
     console.log(`📝 الاستعلام النهائي الخالي من التعقيد:`, rawSql);
