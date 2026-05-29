@@ -26,25 +26,55 @@ export default async function handler(req, res) {
     return res.status(405).json({ success: false, error: 'الطريقة غير مسموح بها، استخدم POST' });
   }
 
-  // 2️⃣ استقبال المعيار الموحد الجديد
-  // table: اسم الجدول المستهدف بالإنجليزية (مثل: items, invoices, contacts)
-  // data: كائن مرن يحتوي على أسماء الأعمدة وقيمها القادمة من الموبايل مباشرة
-  const { schema, table, data } = req.body;
+  // 2️⃣ استقبال المعطيات مع دعم "الأكشن القديم" و "الجدول الحديث" في آن واحد لمنع انهيار الـ 400
+  const { schema, table, action, data } = req.body;
 
-  // التحقق من سلامة البيانات المستقبلة من تطبيق الموبايل لنواة AI
-  if (!schema || !table || !data) {
+  // ذكاء اصطناعي مصغر: إذا أرسل التطبيق "action" بدلاً من "table"، نقوم بتحويله ديناميكياً لاسم الجدول الصحيح
+  let targetTable = table;
+  if (!targetTable && action) {
+    if (action === 'ADD_PURCHASE_INVOICE' || action === 'ADD_PURCHASE') {
+      targetTable = 'purchases'; 
+    } else if (action === 'ADD_ORDER_REQUEST') {
+      targetTable = 'order_requests';
+    } else {
+      targetTable = action.toLowerCase().replace('add_', '') + 's'; // تحويل تلقائي احتياطي
+    }
+  }
+
+  const activeSchema = schema || 'public';
+
+  // التحقق الفضفاض من سلامة البيانات (إذا وجدنا سكيما وجدول وبيانات نمضي قدماً)
+  if (!targetTable || !data) {
     return res.status(400).json({ 
       success: false, 
-      error: 'البيانات المرسلة ناقصة، المعيار يتطلب إرسال (schema, table, data)' 
+      error: 'البيانات المرسلة مفقودة أو ناقصة الهيكل الدلالي، المعيار يتطلب (schema, table/action, data)' 
     });
   }
 
   try {
-    // 3️⃣ التنفيذ الديناميكي الحر والموحد داخل قاعدة البيانات 🚀
+    // 🧹 دالة تنظيف وتوحيد المفاتيح (Mapping): 
+    // تحويل أي حقل مرسل بـ camelCase من الموبايل إلى snake_case المتوقع في PostgreSQL
+    const cleanedData = {};
+    Object.keys(data).forEach(key => {
+      // تحويل مثل paymentMethod إلى payment_method
+      const databaseKey = key.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
+      cleanedData[databaseKey] = data[key];
+    });
+
+    // استخراج الداتا الصافية وحذف أي كائنات فرعية قد تسبب خطأ 400 في سوبابيز (مثل حقول الأوبجكت المعقدة)
+    if (cleanedData.batch_info) {
+      // إذا كانت داتا الفاتورة تحتوي على تفاصيل شحنة فرعية، نقوم بمسطحها أو دمج الأعمدة الأساسية
+      cleanedData.batch_id = cleanedData.batch_info.batchId || cleanedData.batch_id;
+      delete cleanedData.batch_info;
+    }
+
+    console.log(`🚀 جاري محاولة الحفر في جدول [${targetTable}] داخل السكيما [${activeSchema}]:`, cleanedData);
+
+    // 3️⃣ التنفيذ الديناميكي المرن والموحد داخل قاعدة البيانات
     const { data: dbResult, error: dbErr } = await supabaseAdmin
-      .schema(schema) // توجيه المحرك ديناميكياً للسكيما الخاصة بالمؤسسة
-      .from(table)    // توجيه المحرك للجدول المطلوب هندسياً
-      .insert([data]) // حقن مصفوفة البيانات أوتوماتيكياً مهما تنوعت الأعمدة
+      .schema(activeSchema) 
+      .from(targetTable)    
+      .insert([cleanedData]) // الحقن داخل مصفوفة
       .select();
 
     if (dbErr) throw dbErr;
@@ -52,16 +82,20 @@ export default async function handler(req, res) {
     // 4️⃣ الرد الموحد بالنجاح وإرجاع السطر المحفور في قاعدة البيانات
     return res.status(200).json({ 
       success: true, 
-      message: `تم حفر البيانات بنجاح في جدول ${table}`,
+      message: `تم حفر البيانات بنجاح في جدول ${targetTable}`,
+      table: targetTable,
       data: dbResult && dbResult.length > 0 ? dbResult[0] : null 
     });
 
   } catch (error) {
-    console.error(`خطأ الباك إند الموحد أثناء الحفظ في جدول ${table}:`, error);
-    // إرجاع تفاصيل الخطأ الحقيقية القادمة من PostgreSQL لتسهيل الفحص في الموبايل
+    console.error(`❌ خطأ الباك إند الموحد أثناء الحفظ في جدول ${targetTable}:`, error);
+    
+    // إرجاع تفاصيل دقيقة جداً من PostgreSQL لمساعدتك في الفرونت إند على معرفة العمود المسبب للمشكلة
     return res.status(400).json({ 
       success: false, 
-      error: error.message || error 
+      error: error.message || error,
+      details: error.details || "تأكد من مطابقة أسماء الأعمدة في قاعدة البيانات مع الحقول المرسلة",
+      hint: error.hint || "راجع قيود الجداول (Constraints أو Foreign Keys)"
     });
   }
 }
