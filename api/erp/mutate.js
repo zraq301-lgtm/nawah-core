@@ -43,21 +43,22 @@ export default async function handler(req, res) {
       return `'${String(val).replace(/'/g, "''")}'`;
     }).join(', ');
 
-    // 3️⃣ 🔥 الاستعلام المطور والمضمون هندسياً:
-    // نقوم بتحديد اسم السكيما بشكل صريح تماماً ومباشر أثناء الإدخال لكسر ارتباك المحرك، 
-    // مع الإبقاء على ضبط الـ search_path لضمان عمل الـ Triggers والعلاقات الداخلية بدون مشاكل.
+    // 3️⃣ 🔥 الاستعلام المضمون والمعدل:
+    // نحدد السكيما صراحة داخل الـ INSERT لمنع ارتباك المحرك، 
+    // وبنفس الوقت بنشغل set_config عشان الـ Triggers والعلاقات المعتمدة على الـ search_path تشتغل صح وترجع الـ Data
     const rawSql = `
-      DO $$ 
-      BEGIN 
-        PERFORM set_config('search_path', '${safeSchema}, public', true); 
-      END $$;
-
-      INSERT INTO "${safeSchema}"."${targetTable}" (${columns}) 
-      VALUES (${values}) 
-      RETURNING *;
+      WITH set_path AS (
+        SELECT set_config('search_path', '${safeSchema}, public', true)
+      ),
+      rows AS (
+        INSERT INTO "${safeSchema}"."${targetTable}" (${columns}) 
+        VALUES (${values}) 
+        RETURNING *
+      ) 
+      SELECT rows.* FROM rows, set_path
     `;
     
-    console.log(`📝 الاستعلام النهائي الخالي من التعقيد:`, rawSql);
+    console.log(`📝 الاستعلام النهائي المصلح:`, rawSql);
 
     // 4️⃣ تمرير الاستعلام للبوابة
     const { data: sqlResult, error: sqlErr } = await supabaseAdmin
