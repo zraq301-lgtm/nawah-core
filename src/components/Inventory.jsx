@@ -1,62 +1,41 @@
 import React, { useState, useEffect } from 'react';
 import { Package, Truck, Archive } from 'lucide-react';
-import { CapacitorHttp } from '@capacitor/core'; // 🔥 استيراد محرك الجلب العابر للأندرويد
 
 // استيراد الصفحات الثلاث
 import RawMaterials from './Page/RawMaterials';
 import SupplyEntry from './Page/SupplyEntry';
 import FinishedProducts from './Page/FinishedProducts';
 
-const Inventory = ({ onDeleteItem, onInventoryEntry }) => {
+const Inventory = ({ onDeleteItem, onInventoryEntry, stockData = [], loading = false, onRefresh }) => {
   // الحالة المسؤولة عن تحديد أي واجهة تظهر الآن
   const [activeTab, setActiveTab] = useState('raw');
   
-  // حالات تخزين البيانات المفروزة من السيرفر
+  // حالات تخزين البيانات المفروزة والموزعة محلياً
   const [rawMaterialsData, setRawMaterialsData] = useState([]);
   const [finishedProductsData, setFinishedProductsData] = useState([]);
-  const [loading, setLoading] = useState(true);
 
-  // 📥 1️⃣ دالة جلب البيانات الموحدة المحدثة بالطريقة الجديدة
-  const fetchStockData = async () => {
-    try {
-      setLoading(true);
-      const schema = localStorage.getItem('tenant_schema') || 'public';
-
-      // الحفاظ على نفس الرابط الأصلي مع إرسال البارامترات المطلوبة
-      const options = {
-        url: `https://project-902ma.vercel.app/api/erp/fetch?schema=${schema}&table=stock`, 
-        headers: { 'Content-Type': 'application/json' }
-      };
-
-      const response = await CapacitorHttp.get(options);
-      
-      // التعديل هنا ليتوافق مع طريقة استلام البيانات الجديدة
-      if (response.data && response.data.data) {
-        const allItems = response.data.data;
-        console.log('📦 الأصناف المجلوبة من نواة AI:', allItems);
-
-        // 🌟 فك الفرز والتوزيع الذكي بناءً على الهيكل الجديد:
-        const raws = allItems.filter(item => item.item_type === 'raw_material' || item.type === 'خامات' || item.category === 'خامات');
-        const finished = allItems.filter(item => item.item_type === 'product' || item.type === 'منتج نهائي' || item.category === 'منتج نهائي');
-
-        setRawMaterialsData(raws);
-        setFinishedProductsData(finished);
-      }
-    } catch (error) {
-      console.error('❌ خطأ أثناء جلب بيانات المخزن السحابي:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // 🔄 2️⃣ تشغيل دالة الجلب التلقائي بمجرد فتح الشاشة
+  // 🌟 دالة الفرز والتوزيع الذكي بناءً على البيانات المستلمة من كود الـ App الرئيسي
   useEffect(() => {
-    fetchStockData();
-  }, []);
+    if (stockData && stockData.length > 0) {
+      console.log('📦 الأصناف المستلمة من كود الـ App داخل المخزن:', stockData);
+      
+      // فك الفرز والتوزيع بناءً على الهيكل السحابي والمعياري:
+      const raws = stockData.filter(item => item.item_type === 'raw_material' || item.type === 'خامات' || item.category === 'خامات');
+      const finished = stockData.filter(item => item.item_type === 'product' || item.type === 'منتج نهائي' || item.category === 'منتج نهائي');
 
-  // دالة لتحديث البيانات محلياً وإعادة المزامنة عند إجراء أي حركة توريد جديدة
+      setRawMaterialsData(raws);
+      setFinishedProductsData(finished);
+    } else {
+      setRawMaterialsData([]);
+      setFinishedProductsData([]);
+    }
+  }, [stockData]); // يتم إعادة الفرز تلقائياً فور تغير البيانات القادمة من الـ App
+
+  // دالة لتحديث البيانات من خلال استدعاء دالة التحديث الممررة من الـ App
   const handleRefreshData = () => {
-    fetchStockData();
+    if (typeof onRefresh === 'function') {
+      onRefresh();
+    }
   };
 
   const styles = {
@@ -116,14 +95,14 @@ const Inventory = ({ onDeleteItem, onInventoryEntry }) => {
         </div>
       </div>
 
-      {/* منطقة عرض المحتوى مع مؤشر تحميل ذكي */}
+      {/* منطقة عرض المحتوى مع مؤشر تحميل ذكي مستلم من الأب */}
       <div style={styles.contentArea}>
         
         {loading ? (
           <div style={styles.loadingText}>جاري مزامنة وجلب بيانات المخازن المعزولة...</div>
         ) : (
           <>
-            {/* واجهة الخامات الفولاذية (تستقبل خاماتها فقط) */}
+            {/* واجهة الخامات الفولاذية (تستقبل خاماتها المفرزة) */}
             {activeTab === 'raw' && (
               <RawMaterials 
                 categories={rawMaterialsData} 
@@ -137,13 +116,13 @@ const Inventory = ({ onDeleteItem, onInventoryEntry }) => {
               <SupplyEntry 
                 onInventoryEntry={async (entryData) => {
                   await onInventoryEntry(entryData);
-                  handleRefreshData(); // إعادة تحديث المخازن فور حفظ توريد جديد
+                  handleRefreshData(); // استدعاء التحديث المركزي فور حفظ حركة توريد جديدة
                 }} 
                 categories={[...rawMaterialsData, ...finishedProductsData]} 
               />
             )}
 
-            {/* واجهة المنتجات النهائية (تستقبل المنتجات التامة فقط) */}
+            {/* واجهة المنتجات النهائية (تستقبل المنتجات التامة المفرزة) */}
             {activeTab === 'finished' && (
               <FinishedProducts 
                 categories={finishedProductsData} 
