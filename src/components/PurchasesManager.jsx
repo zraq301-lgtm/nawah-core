@@ -20,7 +20,7 @@ const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigg
 
   const lowStockItems = stock.filter(s => s.balance <= 20);
 
-  // 🛡️ ميكانيزم استخراج رقم الشركة المعزول من الأندرويد بدقة ومنع الارتداد للعام
+  // 🛡️ ميكانيزم استخراج وتحويل اسم الشركة لحروف صغيرة إجبارياً لمنع ارتداد الكاش
   const getCleanTenantSchema = () => {
     const rawSchema = tenantSchema || 
                       localStorage.getItem('tenant_schema') || 
@@ -28,11 +28,13 @@ const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigg
                       localStorage.getItem('tenant_id');
 
     if (!rawSchema || rawSchema === 'public') {
-      console.error("❌ خطأ حرج في الواجهة: لم يتم العثور على معرف شركة معزول في تخزين الأندرويد!");
+      console.error("❌ خطأ حرج في الواجهة: لم يتم العثور على معرف شركة معزول!");
       return 'tenant_1780023145536'; 
     }
 
-    return rawSchema.startsWith('tenant_') ? rawSchema : `tenant_${rawSchema}`;
+    // إجبار الحروف الصغيرة (Lowercase) لمنع تعارض الـ Postgres
+    const clean = rawSchema.startsWith('tenant_') ? rawSchema : `tenant_${rawSchema}`;
+    return clean.trim().toLowerCase();
   };
 
   const handleExistingItemSelect = (itemName) => {
@@ -64,7 +66,7 @@ const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigg
     });
   };
 
-  // --- 🚀 دالة إرسال طلب الاحتياج ---
+  // --- 🚀 دالة إرسال طلب الاحتياج المعيارية ---
   const handleSendToSuppliers = async (e) => {
     if (e) e.preventDefault();
     if (!orderRequest.item || !orderRequest.neededQty) {
@@ -81,13 +83,22 @@ const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigg
         headers: { 'Content-Type': 'application/json' },
         data: {
           schema: companySchema,
-          table: 'order_requests', 
           data: {                   
-            item_name: orderRequest.item,
-            quantity: parseFloat(orderRequest.neededQty) || 0,
-            supplier_name: orderRequest.supplier || 'عام',
-            request_type: 'ERP_ORDER_REQUEST',
-            created_at: new Date().toISOString()
+            invoice_number: `REQ-${Date.now().toString().slice(-6)}`,
+            invoice_type: 'purchase_request',
+            description: `طلب نواقص صنف: ${orderRequest.item} - المورد: ${orderRequest.supplier || 'عام'}`,
+            gross_amount: 0,
+            net_amount: 0,
+            paid_amount: 0,
+            // هيكل مصفوفة المدخلات القياسي لـ Supabase للأصناف المعزولة
+            items: [
+              {
+                item_id: Date.now().toString().slice(-4), 
+                name: orderRequest.item,
+                quantity: parseFloat(orderRequest.neededQty) || 0,
+                unit_price: 0
+              }
+            ]
           }
         }
       };
@@ -115,7 +126,7 @@ const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigg
     setActiveView('menu');
   };
 
-  // --- 🟢 دالة حفظ وتسكين فاتورة المشتريات مع إرسال المعرفات المستقرة ---
+  // --- 🟢 دالة حفظ الفاتورة بالهيكل القياسي لـ Supabase (المدخلات الموحدة) ---
   const handleSave = async (e) => {
     if (e) e.preventDefault();
     
@@ -129,18 +140,34 @@ const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigg
 
     setIsSubmitting(true);
     const companySchema = getCleanTenantSchema();
+    const batchId = `B-${Date.now().toString().slice(-6)}`;
+    const totalAmount = parsedQty * parsedPrice;
 
-    const purchaseWithBatch = {
-      ...formData,
-      quantity: parsedQty,
-      price: parsedPrice,
-      total: parsedQty * parsedPrice,
-      id: Date.now(),
-      batchInfo: {
-        batchId: `B-${Date.now().toString().slice(-6)}`,
-        purchaseDate: formData.date,
-        costPerUnit: parsedPrice,
-        supplier: formData.supplier || 'مورد عام افتراضي'
+    // 🔥 الـ Payload المعياري الشامل لـ Supabase لحفظ المشتريات والمخزن والنقدية بضربة واحدة
+    const supabasePayload = {
+      schema: companySchema,
+      data: {
+        invoice_number: batchId,
+        invoice_type: 'purchase',
+        contact_id: 1, // رقم المورد العام المثبت بالعلاقات
+        account_id: 1, // رقم الخزينة الرئيسية
+        contact_name: formData.supplier || 'مورد عام افتراضي',
+        gross_amount: totalAmount,
+        discount: 0,
+        tax_amount: 0,
+        net_amount: totalAmount,
+        paid_amount: formData.paymentMethod === 'كاش' ? totalAmount : 0,
+        description: `فاتورة مشتريات خامات صنف [${formData.item}] بالوحدة [${formData.unit || 'قطعة'}]`,
+        // 📦 حزمة الأصناف الجاهزة لتسكين المخازن والـ Foreign Keys فوراً
+        items: [
+          {
+            item_id: isNewItem ? Math.floor(1000 + Math.random() * 9000) : 1, // توليد معرف آمن إذا كان جديداً
+            name: formData.item,
+            barcode: `BAR-${batchId}`,
+            quantity: parsedQty,
+            unit_price: parsedPrice
+          }
+        ]
       }
     };
 
@@ -148,24 +175,10 @@ const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigg
       const options = {
         url: 'https://project-902ma.vercel.app/api/erp/mutate',
         headers: { 'Content-Type': 'application/json' },
-        data: {
-          schema: companySchema, 
-          table: 'invoices', 
-          data: {                   
-            invoice_number: purchaseWithBatch.batchInfo.batchId,
-            invoice_type: 'purchase',
-            gross_amount: purchaseWithBatch.total,
-            net_amount: purchaseWithBatch.total,
-            paid_amount: formData.paymentMethod === 'كاش' ? purchaseWithBatch.total : 0,
-            remaining_amount: formData.paymentMethod === 'آجل' ? purchaseWithBatch.total : 0,
-            created_at: new Date(purchaseWithBatch.date).toISOString(),
-            // 🔥 هنا السر الدائم المستقر: نمرر الرقم 1 ليرتبط بالمورد العام المثبت في الداتابيز فتنشط العلاقات فوراً!
-            contact_id: 1 
-          }
-        }
+        data: supabasePayload // تمرير الحزمة الموحدة كاملة
       };
 
-      console.log(`📡 جاري دفع الفاتورة بالعلاقات الصارمة إلى: [${companySchema}]`);
+      console.log(`📡 جاري ترحيل المدخلات المعيارية إلى السكيما: [${companySchema}]`);
       const response = await CapacitorHttp.post(options);
       console.log('☁️ نتيجة التسكين وبناء العلاقات:', response.data);
 
@@ -173,12 +186,19 @@ const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigg
         throw new Error(response.data.error || 'فشل التسكين بالسيرفر');
       }
 
-      alert(`تم التسكين بنجاح في مخزن الشركة برقم شحنة ${purchaseWithBatch.batchInfo.batchId}`);
+      alert(`تم التسكين بنجاح في مخزن الشركة برقم شحنة ${batchId}`);
       
       if (typeof onPurchaseComplete === 'function') {
-        onPurchaseComplete(purchaseWithBatch);
+        onPurchaseComplete({
+          ...formData,
+          quantity: parsedQty,
+          price: parsedPrice,
+          total: totalAmount,
+          id: Date.now()
+        });
       }
 
+      // تصفير الواجهة بعد النجاح
       setFormData({ item: '', unit: '', quantity: '', price: '', supplier: '', paymentMethod: 'كاش', date: new Date().toISOString().split('T')[0] });
       setIsNewItem(false);
       setActiveView('menu');
@@ -285,7 +305,7 @@ const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigg
               type="submit" 
               disabled={isSubmitting}
               style={{ backgroundColor: '#f59e0b', width: '100%', padding: '12px', borderRadius: '10px', color: '#fff', border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '1rem', fontWeight: 'bold', cursor: 'pointer', opacity: isSubmitting ? 0.5 : 1 }}>
-              <Truck size={20} /> {isSubmitting ? 'جاري معالجة الحفر السحابي...' : 'إرسال الطلب عبر السحابة الموحدة'}
+              <Truck size={20} /> {isSubmitting ? 'جاري معالجة المدخلات السحابية...' : 'إرسال الطلب عبر السحابة الموحدة'}
             </button>
           </form>
         </div>
@@ -327,7 +347,7 @@ const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigg
               type="submit" 
               disabled={isSubmitting}
               style={{ backgroundColor: '#1e5631', width: '100%', padding: '12px', borderRadius: '10px', color: '#fff', border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '1rem', fontWeight: 'bold', cursor: 'pointer', opacity: isSubmitting ? 0.5 : 1 }}>
-              <Save size={20} /> {isSubmitting ? 'جاري تأمين وحفر الفاتورة بالسيرفر الموحد...' : 'حفظ ومزامنة الفاتورة سحابياً'}
+              <Save size={20} /> {isSubmitting ? 'جاري ترحيل وحفر الفاتورة بـ Supabase...' : 'حفظ ومزامنة الفاتورة سحابياً'}
             </button>
           </form>
         </div>
