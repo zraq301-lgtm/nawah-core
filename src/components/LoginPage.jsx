@@ -39,7 +39,7 @@ const LoginPage = ({ onLoginSuccess }) => {
     return { valid: true, email: finalEmail };
   };
 
-  // 🔹 معالجة تسجيل الدخول أو إنشاء حساب جديد على نيون
+  // 🔹 معالجة تسجيل الدخول أو إنشاء حساب جديد
   const handleSubmit = async (e) => {
     e.preventDefault();
     setStatus({ loading: true, error: '', successMessage: '' });
@@ -48,7 +48,7 @@ const LoginPage = ({ onLoginSuccess }) => {
     if (!emailCheck.valid) {
       setStatus({
         loading: false,
-        error: "صيغة البريد غير صالحة. يرجى كتابة اسم المستخدم بشكل صحيح للامتداد @nawh.ai",
+        error: "صيغة اسم المستخدم غير مطابقة للنظام المعياري لـ @nawh.ai",
         successMessage: ''
       });
       return;
@@ -58,7 +58,7 @@ const LoginPage = ({ onLoginSuccess }) => {
 
     try {
       if (isRegisterMode) {
-        // 🚀 أولاً: وضع التسجيل باستخدام CapacitorHttp وتوجيهه لنيون عبر الباك إند
+        // 🚀 أولاً: وضع التسجيل باستخدام CapacitorHttp وتوجيهه عبر الباك إند
         const options = {
           url: 'https://project-902ma.vercel.app/api/auth/register', 
           headers: { 'Content-Type': 'application/json' },
@@ -74,7 +74,7 @@ const LoginPage = ({ onLoginSuccess }) => {
         if (response.data && response.data.success) {
           const schemaName = response.data.schema;
 
-          // 🔥 حفظ مزدوج ومستقر لاسم السكيما المستهدفة ديناميكياً داخل نيون
+          // 🔥 حفظ مزدوج ومستقر لاسم السكيما المستهدفة ديناميكياً
           await Preferences.set({ key: 'tenant_schema', value: JSON.stringify(schemaName) });
           localStorage.setItem('tenant_schema', schemaName);
           localStorage.setItem('user_email', targetEmail);
@@ -82,7 +82,7 @@ const LoginPage = ({ onLoginSuccess }) => {
           setStatus({
             loading: false,
             error: '',
-            successMessage: 'تم تأسيس الشركة وحفر جداول الـ ERP المعزولة داخل نيون بنجاح! جاري توجيهك للوحة التحكم...'
+            successMessage: 'تم تأسيس حساب المؤسسة وتجهيز بيئة العمل بنجاح! جاري التوجيه...'
           });
 
           // تفعيل الدخول فوراً وبأعلى درجات الاستقرار
@@ -90,14 +90,14 @@ const LoginPage = ({ onLoginSuccess }) => {
         } else {
           setStatus({
             loading: false,
-            error: response.data?.error || "فشل تأسيس الجداول المخصصة في نيون، يرجى مراجعة البيانات",
+            error: response.data?.error || "تعذر إنشاء الحساب، يرجى التحقق من البيانات المدخلة وتكرار المحاولة",
             successMessage: ''
           });
         }
       } else {
-        // 🔑 ثانياً: وضع تسجيل الدخول وتوجيهه لنيون لفحص الحساب المركزي والـ Schema
+        // 🔑 ثانياً: وضع تسجيل الدخول التقليدي
         const options = {
-          url: 'https://project-902ma.vercel.app/api/auth/login', // نفس خادم الباك إند للتحقق من نيون
+          url: 'https://project-902ma.vercel.app/api/auth/login', 
           headers: { 'Content-Type': 'application/json' },
           data: {
             email: targetEmail,
@@ -113,7 +113,7 @@ const LoginPage = ({ onLoginSuccess }) => {
           if (!cloudSchema) {
             setStatus({
               loading: false,
-              error: "لم يتم العثور على جداول معزولة مرتبطة بهذا الحساب داخل نيون",
+              error: "الحساب لا يحتوي على صلاحيات الوصول لبيئة العمل الحالية",
               successMessage: ''
             });
             return;
@@ -134,7 +134,7 @@ const LoginPage = ({ onLoginSuccess }) => {
         } else {
           setStatus({ 
             loading: false, 
-            error: response.data?.error || "خطأ في البريد الإلكتروني أو كلمة المرور داخل نظام نيون المركزي",
+            error: response.data?.error || "خطأ في البريد الإلكتروني أو كلمة المرور، يرجى إعادة المحاولة",
             successMessage: ''
           });
         }
@@ -142,35 +142,38 @@ const LoginPage = ({ onLoginSuccess }) => {
     } catch (err) {
       setStatus({ 
         loading: false, 
-        error: "تعذر الاتصال بالسيرفر، تأكد من إعدادات الشبكة ومفتاح الأمان لنواة AI",
+        error: "فشل الاتصال بالنظام السحابي، يرجى التحقق من اتصال الشبكة",
         successMessage: ''
       });
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[#0f172a] font-sans rtl" dir="rtl">
+    <div className="min-h-screen flex items-center justify-center bg-[#090d16] font-sans rtl selection:bg-violet-500/30" dir="rtl">
       {/* تأثيرات غازية لأسلوب الواجهة المتطور */}
-      <div className="absolute w-72 h-72 bg-violet-600 rounded-full blur-[120px] opacity-25 top-10 left-10"></div>
-      <div className="absolute w-72 h-72 bg-fuchsia-600 rounded-full blur-[120px] opacity-25 bottom-10 right-10"></div>
+      <div className="absolute w-80 h-80 bg-violet-600 rounded-full blur-[140px] opacity-20 top-5 left-5 pointer-events-none"></div>
+      <div className="absolute w-80 h-80 bg-fuchsia-600 rounded-full blur-[140px] opacity-20 bottom-5 right-5 pointer-events-none"></div>
 
       {/* كارت تسجيل الدخول والتسجيل الزجاجي الفخم لـ نواة AI */}
-      <div className="relative z-10 w-full max-w-md p-8 m-4 bg-white/5 backdrop-blur-2xl border border-white/10 rounded-3xl shadow-2xl transition-all duration-300">
-        <div className="text-center mb-8">
-          <h1 className="text-4xl font-black text-white mb-2 tracking-tight">نواة AI</h1>
-          <p className="text-violet-200/70 text-sm font-medium">
-            {isRegisterMode ? "تأسيس شركة وعزل البيانات فيزيائياً داخل نيون" : "نظام إدارة وعزل الموارد الذكي المطور عبر نيون"}
+      <div className="relative z-10 w-full max-w-md p-8 m-4 bg-white/[0.03] backdrop-blur-3xl border border-white/[0.08] rounded-[2rem] shadow-[0_25px_50px_-12px_rgba(0,0,0,0.5)] transition-all duration-300">
+        
+        <div className="text-center mb-9">
+          <h1 className="text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-white via-violet-100 to-violet-300 mb-3 tracking-tight">
+            نواة AI
+          </h1>
+          <p className="text-violet-200/60 text-sm font-medium leading-relaxed">
+            {isRegisterMode ? "إنشاء حساب سحابي وتجهيز مساحة العمل الخاصة بك" : "نظام الإدارة وعزل الموارد الذكي المتكامل"}
           </p>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-5">
+        <form onSubmit={handleSubmit} className="space-y-6">
           {isRegisterMode && (
             <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-300 mr-1 block text-right">اسم الشركة / المؤسسة</label>
+              <label className="text-xs font-semibold text-violet-200/70 mr-1 block text-right tracking-wide">اسم الشركة / المؤسسة</label>
               <input
                 type="text"
                 required
-                className="w-full p-4 bg-white/5 border border-white/10 rounded-2xl text-white outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500 transition-all text-right"
+                className="w-full p-4 bg-white/[0.04] border border-white/[0.08] rounded-2xl text-white outline-none focus:border-violet-500/70 focus:ring-1 focus:ring-violet-500/30 transition-all text-right font-medium text-sm placeholder:text-gray-600 shadow-inner"
                 placeholder="شركة النور للتجارة"
                 value={formData.companyName || ''}
                 onChange={(e) => setFormData({...formData, companyName: e.target.value})}
@@ -179,11 +182,11 @@ const LoginPage = ({ onLoginSuccess }) => {
           )}
 
           <div className="space-y-2">
-            <label className="text-sm font-medium text-gray-300 mr-1 block text-right">البريد الإلكتروني المعتمد</label>
+            <label className="text-xs font-semibold text-violet-200/70 mr-1 block text-right tracking-wide">البريد الإلكتروني المعتمد</label>
             <input
               type="text"
               required
-              className="w-full p-4 bg-white/5 border border-white/10 rounded-2xl text-white outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500 transition-all text-left"
+              className="w-full p-4 bg-white/[0.04] border border-white/[0.08] rounded-2xl text-white outline-none focus:border-violet-500/70 focus:ring-1 focus:ring-violet-500/30 transition-all text-left font-medium text-sm placeholder:text-gray-600 shadow-inner"
               placeholder="username@nawh.ai"
               value={formData.email}
               onChange={(e) => setFormData({...formData, email: e.target.value})}
@@ -191,11 +194,11 @@ const LoginPage = ({ onLoginSuccess }) => {
           </div>
 
           <div className="space-y-2">
-            <label className="text-sm font-medium text-gray-300 mr-1 block text-right">كلمة المرور المشفرة</label>
+            <label className="text-xs font-semibold text-violet-200/70 mr-1 block text-right tracking-wide">كلمة المرور</label>
             <input
               type="password"
               required
-              className="w-full p-4 bg-white/5 border border-white/10 rounded-2xl text-white outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500 transition-all text-right"
+              className="w-full p-4 bg-white/[0.04] border border-white/[0.08] rounded-2xl text-white outline-none focus:border-violet-500/70 focus:ring-1 focus:ring-violet-500/30 transition-all text-right font-medium text-sm placeholder:text-gray-600 shadow-inner"
               placeholder="••••••••"
               value={formData.password}
               onChange={(e) => setFormData({...formData, password: e.target.value})}
@@ -203,13 +206,13 @@ const LoginPage = ({ onLoginSuccess }) => {
           </div>
 
           {status.error && (
-            <div className="p-3 bg-red-500/20 border border-red-500/40 rounded-xl text-red-200 text-sm text-center">
+            <div className="p-3.5 bg-red-500/10 border border-red-500/20 rounded-2xl text-red-300 text-xs font-medium text-center leading-relaxed">
               {status.error}
             </div>
           )}
 
           {status.successMessage && (
-            <div className="p-3 bg-emerald-500/20 border border-emerald-500/40 rounded-xl text-emerald-200 text-sm text-center">
+            <div className="p-3.5 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl text-emerald-300 text-xs font-medium text-center leading-relaxed">
               {status.successMessage}
             </div>
           )}
@@ -217,35 +220,35 @@ const LoginPage = ({ onLoginSuccess }) => {
           <button
             type="submit"
             disabled={status.loading}
-            className="w-full p-4 bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 text-white font-bold rounded-2xl shadow-xl shadow-violet-900/30 transition-all transform active:scale-95 disabled:opacity-50"
+            className="w-full p-4 bg-gradient-to-r from-violet-600 via-fuchsia-600 to-violet-600 bg-[length:200%_auto] hover:bg-right text-white font-bold rounded-2xl shadow-xl shadow-violet-950/20 transition-all duration-500 transform active:scale-[0.98] disabled:opacity-40 text-sm tracking-wide"
           >
             {status.loading ? (
-              <span className="flex items-center justify-center gap-2">
-                <svg className="animate-spin h-5 w-5 text-white" viewBox="0 0 24 24">
+              <span className="flex items-center justify-center gap-2.5">
+                <svg className="animate-spin h-4 w-4 text-white" viewBox="0 0 24 24">
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle>
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                 </svg>
-                {isRegisterMode ? "جاري بناء سكيما نيون وعزل الجداول..." : "جاري فحص الحساب المركزي لنظام نيون..."}
+                {isRegisterMode ? "جاري تهيئة مساحة العمل..." : "جاري التحقق من الهوية الرقمية..."}
               </span>
-            ) : isRegisterMode ? "تأسيس النظام وحفر الجداول المعزولة في نيون 🚀" : "دخول آمن للنظام المطور"}
+            ) : isRegisterMode ? "إنشاء وتفعيل حساب المؤسسة 🚀" : "دخول آمن للنظام المطور"}
           </button>
         </form>
 
-        <div className="mt-6 text-center">
+        <div className="mt-7 text-center">
           <button
             type="button"
             onClick={() => {
               setIsRegisterMode(!isRegisterMode);
               setStatus({ loading: false, error: '', successMessage: '' });
             }}
-            className="text-sm text-violet-400 hover:text-violet-300 transition-colors underline bg-transparent border-none cursor-pointer font-medium"
+            className="text-xs text-violet-400 hover:text-violet-300 transition-colors underline underline-offset-4 bg-transparent border-none cursor-pointer font-semibold tracking-wide"
           >
-            {isRegisterMode ? "لديك حساب مؤسسة بالفعل؟ سجل دخولك" : "إنشاء حساب شركة ونظام ERP معزول جديد"}
+            {isRegisterMode ? "لديك حساب مؤسسة بالفعل؟ سجل دخولك" : "إنشاء حساب شركة ومساحة عمل جديدة"}
           </button>
         </div>
 
-        <p className="mt-6 text-center text-gray-500 text-xs tracking-wide">
-          بنية تابعة لـ نواة AI ومستضافة عبر نظام عزل الجداول المركزي داخل نيون
+        <p className="mt-8 text-center text-gray-600 text-[10px] tracking-widest font-medium uppercase">
+          جميع الحقوق محفوظة © نواة AI
         </p>
       </div>
     </div>
