@@ -2,6 +2,7 @@
 import { createClient } from '@supabase/supabase-js';
 
 export default async function handler(req, res) {
+  // 🛡️ تأمين الاتصال العابر وسماحيات الكورز (CORS) لهواتف الأندرويد
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
@@ -10,9 +11,11 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ success: false, error: 'Method Not Allowed' });
 
   const { schema, data } = req.body; 
+  
+  if (!schema) return res.status(400).json({ success: false, error: "اسم الـ Schema مطلوب" });
+  
+  // تأمين معيار الحروف الصغيرة قسراً داخل السيرفر لضمان ثبات الهيكل السحابي
   const schemaName = String(schema).trim().toLowerCase(); 
-
-  if (!schemaName) return res.status(400).json({ success: false, error: "اسم الـ Schema مطلوب" });
 
   const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, {
     auth: { persistSession: false }
@@ -28,9 +31,12 @@ export default async function handler(req, res) {
     const paidAmount = Number(data.paid_amount || 0);
     const remainingAmount = netAmount - paidAmount;
 
-    // 1️⃣ تأمين الحسابات والعملاء (Upsert)
+    // 💡 تحديد تصنيف جهة التعامل بناءً على نوع الفاتورة القادمة من الواجهة
+    const contactType = (data.invoice_type === 'purchase' || data.invoice_type === 'purchase_request') ? 'supplier' : 'customer';
+
+    // 1️⃣ تأمين الحسابات والموردين/العملاء (Upsert المعياري لـ Supabase)
     await supabase.schema(schemaName).from('contacts').upsert(
-      { id: targetContactId, name: data.contact_name || 'عميل افتراضي', type: 'customer' },
+      { id: targetContactId, name: data.contact_name || 'جهة تعامل عامة', type: contactType },
       { onConflict: 'id' }
     );
 
@@ -39,7 +45,7 @@ export default async function handler(req, res) {
       { onConflict: 'id' }
     );
 
-    // 2️⃣ إدخال رأس الفاتورة
+    // 2️⃣ إدخال رأس الفاتورة أو طلب الاحتياج
     const { data: invoice, error: invError } = await supabase
       .schema(schemaName)
       .from('invoices')
@@ -52,14 +58,15 @@ export default async function handler(req, res) {
         tax_amount: taxAmount,
         net_amount: netAmount,
         paid_amount: paidAmount,
-        remaining_amount: remainingAmount
+        remaining_amount: remainingAmount,
+        description: data.description || null
       }])
       .select()
       .single();
 
     if (invError) throw new Error(`خطأ الفاتورة: ${invError.message}`);
 
-    // 3️⃣ إدخال الأصناف (invoice_items)
+    // 3️⃣ تفكيك وإدخال مصفوفة الأصناف (invoice_items) المنبثقة من شاشة المشتريات
     const itemsArray = data.items || data.invoice_items || [];
     if (itemsArray.length > 0) {
       const preparedItems = [];
@@ -67,6 +74,7 @@ export default async function handler(req, res) {
       for (const item of itemsArray) {
         const currentItemId = item.item_id || item.id || 1;
 
+        // مزامنة وجود الصنف في المخزن أولاً (تجنب كسر قيود العلاقات المتينة)
         await supabase.schema(schemaName).from('items').upsert(
           { 
             id: Number(currentItemId), 
@@ -93,14 +101,17 @@ export default async function handler(req, res) {
       if (itemsError) throw new Error(`خطأ الأصناف: ${itemsError.message}`);
     }
 
-    // 4️⃣ ترحيل السند المالي للخزينة
+    // 4️⃣ ترحيل السند المالي وحركة النقدية تلقائياً بناءً على طبيعة العملية المالية
     if (paidAmount > 0) {
+      // إذا كانت مشتريات تخرج الأموال من الخزينة (out)، وإذا كانت مبيعات تدخل الخزينة (in)
+      const cashFlowType = data.invoice_type === 'purchase' ? 'out' : 'in';
+
       const { error: cashError } = await supabase
         .schema(schemaName)
         .from('cash_transactions')
         .insert([{
           account_id: targetAccountId,
-          flow_type: data.invoice_type === 'purchase' ? 'out' : 'in',
+          flow_type: cashFlowType,
           amount: paidAmount,
           invoice_id: invoice.id,
           description: data.description || `دفعة نقدية للفاتورة رقم: ${data.invoice_number}`
@@ -109,6 +120,7 @@ export default async function handler(req, res) {
       if (cashError) throw new Error(`خطأ حركة النقدية: ${cashError.message}`);
     }
 
+    // إرجاع رد قياسي معترف به من قبل مكون الـ React الخاص بك
     return res.status(200).json({ success: true, data: invoice });
 
   } catch (error) {
