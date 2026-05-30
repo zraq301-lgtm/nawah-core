@@ -100,7 +100,7 @@ const LoginPage = ({ onLoginSuccess }) => {
         } else {
           setStatus({
             loading: false,
-            error: response.data?.error || "فشل تأسيس الجداول المخصصة، يرجى مراجعة البيانات"،
+            error: response.data?.error || "فشل تأسيس الجداول المخصصة، يرجى مراجعة البيانات",
             successMessage: ''
           });
         }
