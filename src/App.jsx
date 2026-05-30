@@ -7,6 +7,9 @@ import Swal from 'sweetalert2';
 // 🔥 استيراد ملف الخدمة المركزي الموحد بالروابط الخاصة بك
 import { apiService } from './services/apiService';
 
+// 🚀 استيراد كود ملف خدمة التنقل وإدارة أزرار الهاتف
+import { navigationService } from './services/navigationService';
+
 // --- استيراد كافة المكونات الحقيقية للنظام من مجلد components ---
 import Dashboard from './components/Dashboard';
 import Inventory from './components/Inventory';
@@ -100,16 +103,13 @@ const App = () => {
     }
   };
 
-  // --- ميزة تفعيل أزرار الهاتف للرجوع ---
+  // --- ميزة تفعيل أزرار الهاتف للرجوع مدمجة مع ملف الخدمة المخصص ---
   useEffect(() => {
-    const backHandler = AppLauncher.addListener('backButton', () => {
-      if (activePage === 'dashboard') {
-        AppLauncher.exitApp();
-      } else {
-        setActivePage('dashboard');
-      }
-    });
-    return () => { backHandler.then(h => h.remove()); };
+    navigationService.initBackButton(activePage, setActivePage);
+    
+    return () => { 
+      navigationService.destroy(); 
+    };
   }, [activePage]);
 
   // --- دالة تجميع الأصناف ومنع التكرار ---
@@ -186,7 +186,7 @@ const App = () => {
     if (localStock) setStock(localStock);
     if (localHistory) setProductionHistory(localHistory);
 
-    // 🚀 بدء المزامنة الخلفية للسيرفر لضمان جلب آخر تعديلات
+    // 🚀 بدء المزامنة الخلفية للسيرفر لضشان جلب آخر تعديلات
     if (savedSchema && savedAuth === true) {
       await syncCloudData();
     }
