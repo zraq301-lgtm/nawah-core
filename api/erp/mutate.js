@@ -2,6 +2,9 @@ import { createClient } from '@supabase/supabase-js';
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 
+// دالة مساعدة لعمل تأخير زمني بالملي ثانية
+const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -11,7 +14,6 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ success: false, error: 'Method Not Allowed' });
 
   const { schema, data } = req.body; 
-  // تنظيف اسم السكيما تماماً وتحويله لحروف صغيرة ليتوافق مع Postgres
   const schemaName = String(schema).trim().toLowerCase(); 
 
   if (!schemaName) {
@@ -20,17 +22,10 @@ export default async function handler(req, res) {
 
   try {
     // ---------------------------------------------------------------
-    // 🛡️ خطوة الحماية الذهبية: التحقق من وجود السكيما في قاعدة البيانات
+    // 1️⃣ التحقق من وجود السكيما في قاعدة البيانات
     // ---------------------------------------------------------------
-    const { data: schemaExists, error: schemaCheckError } = await supabase
-      .rpc('check_if_schema_exists', { schema_to_check: schemaName });
-
-    // ملاحظة: إذا لم تكن دالة check_if_schema_exists منشأة في قاعدة بياناتك (في الـ public)
-    // يمكنك تنفيذ هذا الاستعلام البديل عبر الاستعلام عن الجداول الافتراضية للـ Postgres:
-    let isExist = schemaExists;
-    
-    if (schemaCheckError || schemaExists === null) {
-      // استعلام بديل مباشر في حال عدم وجود الـ rpc المخصص
+    let isExist = false;
+    try {
       const { data: checkTables } = await supabase
         .from('information_schema.schemata')
         .select('schema_name')
@@ -38,15 +33,16 @@ export default async function handler(req, res) {
         .maybeSingle();
       
       isExist = !!checkTables;
+    } catch (e) {
+      isExist = false;
     }
 
     // ---------------------------------------------------------------
-    // 🚀 إذا كانت السكيما غير موجودة (Invalid schema)، قم بإنشائها فوراً!
+    // 2️⃣ إذا كانت السكيما جديدة، يتم إنشاؤها ومنحها وقتاً كافياً للبناء
     // ---------------------------------------------------------------
     if (!isExist) {
-      console.log(`السكيما ${schemaName} غير موجودة. يتم إنشاؤها الآن تلقائياً...`);
+      console.log(`يتم إنشاء السكيما ${schemaName} الآن...`);
       
-      // استدعاء دالة الـ SQL التي أرسلتها لي بالكامل لتبني الجداول والـ Triggers للعميل
       const { error: createSchemaError } = await supabase
         .rpc('create_new_client_erp', { client_schema_name: schemaName });
 
@@ -54,39 +50,13 @@ export default async function handler(req, res) {
         throw new Error(`فشل إنشاء السكيما تلقائياً: ${createSchemaError.message}`);
       }
       
-      // تأخير بسيط بالملي ثانية للتأكد من إنهاء الـ Postgres لبناء الجداول والروابط
-      await new Promise(resolve => setTimeout(resolve, 500));
+      // ⏱️ زيادة وقت الانتظار إلى 2000 ملي ثانية (ثانيتين) لضمان اكتمال بناء كافة الجداول والـ Triggers في الـ Postgres
+      await delay(2000);
     }
 
-    // ---------------------------------------------------------------
-    // تجميع البيانات والتأكد من تحويل المعرفات لأرقام
-    // ---------------------------------------------------------------
+    // تجهيز البيانات وتحويل المعرفات لأرقام
     const targetContactId = data.contact_id ? Number(data.contact_id) : 1;
     const targetAccountId = data.account_id ? Number(data.account_id) : 1;
-
-    // 1️⃣ تأمين وجود العميل داخل السكيما (Upsert)
-    const { error: contactError } = await supabase
-      .schema(schemaName)
-      .from('contacts')
-      .upsert(
-        { id: targetContactId, name: data.contact_name || 'عميل نقدي افتراضي', type: 'customer' },
-        { onConflict: 'id' }
-      );
-
-    if (contactError) throw new Error(`خطأ في التحقق من وجود العميل: ${contactError.message}`);
-
-    // 2️⃣ تأمين وجود الحساب/الخزينة داخل السكيما (Upsert)
-    const { error: accountError } = await supabase
-      .schema(schemaName)
-      .from('accounts')
-      .upsert(
-        { id: targetAccountId, account_name: 'الخزينة الرئيسية', account_type: 'cash' },
-        { onConflict: 'id' }
-      );
-
-    if (accountError) throw new Error(`خطأ في التحقق من وجود الخزينة: ${accountError.message}`);
-
-    // 3️⃣ حساب قيم الفاتورة بدقة
     const grossAmount = Number(data.gross_amount || 0);
     const discount = Number(data.discount || 0);
     const taxAmount = Number(data.tax_amount || 0);
@@ -94,27 +64,71 @@ export default async function handler(req, res) {
     const paidAmount = Number(data.paid_amount || 0);
     const remainingAmount = netAmount - paidAmount;
 
-    // 4️⃣ إدخال الفاتورة الرئيسية
-    const { data: invoice, error: invError } = await supabase
-      .schema(schemaName)
-      .from('invoices')
-      .insert([{
-        invoice_number: String(data.invoice_number),
-        invoice_type: data.invoice_type || 'sale',
-        contact_id: targetContactId,
-        gross_amount: grossAmount,
-        discount: discount,
-        tax_amount: taxAmount,
-        net_amount: netAmount,
-        paid_amount: paidAmount,
-        remaining_amount: remainingAmount
-      }])
-      .select()
-      .single();
+    // ---------------------------------------------------------------
+    // 3️⃣ تنفيذ عمليات الإدخال مع آلية إعادة المحاولة (Retry) لتفادي الكاش
+    // ---------------------------------------------------------------
+    let invoice = null;
+    let attempts = 0;
+    const maxAttempts = 3; // محاولة الإدخال حتى 3 مرات في حال وجود تأخر في استجابة الجداول الجديدة
 
-    if (invError) throw new Error(`خطأ أثناء حفظ الفاتورة: ${invError.message}`);
+    while (attempts < maxAttempts) {
+      try {
+        attempts++;
 
-    // 5️⃣ تفنيد وإدخال عناصر الفاتورة
+        // أ- تأمين العميل (Upsert)
+        await supabase
+          .schema(schemaName)
+          .from('contacts')
+          .upsert(
+            { id: targetContactId, name: data.contact_name || 'عميل نقدي افتراضي', type: 'customer' },
+            { onConflict: 'id' }
+          );
+
+        // ب- تأمين الخزينة (Upsert)
+        await supabase
+          .schema(schemaName)
+          .from('accounts')
+          .upsert(
+            { id: targetAccountId, account_name: 'الخزينة الرئيسية', account_type: 'cash' },
+            { onConflict: 'id' }
+          );
+
+        // جـ- إدخال الفاتورة الرئيسية
+        const { data: invData, error: invError } = await supabase
+          .schema(schemaName)
+          .from('invoices')
+          .insert([{
+            invoice_number: String(data.invoice_number),
+            invoice_type: data.invoice_type || 'sale',
+            contact_id: targetContactId,
+            gross_amount: grossAmount,
+            discount: discount,
+            tax_amount: taxAmount,
+            net_amount: netAmount,
+            paid_amount: paidAmount,
+            remaining_amount: remainingAmount
+          }])
+          .select()
+          .single();
+
+        if (invError) throw invError;
+        
+        invoice = invData; // تم الإدخال بنجاح، نكسر الحلقة
+        break;
+
+      } catch (error) {
+        console.warn(`المحاولة رقم ${attempts} فشلت بسبب عدم جاهزية الجداول. جاري إعادة المحاولة...`);
+        if (attempts >= maxAttempts) {
+          throw new Error(`تعذر الحفظ بعد إنشاء السكيما بسبب تأخر الـ Postgres Cache: ${error.message}`);
+        }
+        // الانتظار ثانية إضافية قبل إعادة المحاولة التالية
+        await delay(1500);
+      }
+    }
+
+    // ---------------------------------------------------------------
+    // 4️⃣ إدخال تفاصيل الأصناف بعد نجاح الفاتورة
+    // ---------------------------------------------------------------
     const itemsArray = data.items || data.invoice_items || [];
     if (itemsArray.length > 0) {
       const preparedItems = [];
@@ -122,8 +136,7 @@ export default async function handler(req, res) {
       for (const item of itemsArray) {
         const currentItemId = item.item_id || item.id || 1;
 
-        // عمل Upsert للصنف في جدول items التابع للسكيما لمنع تعارض الـ Foreign Key
-        const { error: itemUpsertError } = await supabase
+        await supabase
           .schema(schemaName)
           .from('items')
           .upsert(
@@ -135,8 +148,6 @@ export default async function handler(req, res) {
             },
             { onConflict: 'id' }
           );
-
-        if (itemUpsertError) throw new Error(`خطأ في تهيئة الصنف رقم ${currentItemId}: ${itemUpsertError.message}`);
 
         preparedItems.push({
           invoice_id: invoice.id,
@@ -151,10 +162,12 @@ export default async function handler(req, res) {
         .from('invoice_items')
         .insert(preparedItems);
 
-      if (itemsError) throw new Error(`خطأ أثناء إدخال تفاصيل الأصناف: ${itemsError.message}`);
+      if (itemsError) throw new Error(`خطأ أثناء إدخال الأصناف: ${itemsError.message}`);
     }
 
-    // 6️⃣ ترحيل النقدية التلقائي للـ الخزينة
+    // ---------------------------------------------------------------
+    // 5️⃣ ترحيل النقدية للـ الخزينة
+    // ---------------------------------------------------------------
     if (paidAmount > 0) {
       const { error: cashError } = await supabase
         .schema(schemaName)
@@ -170,10 +183,9 @@ export default async function handler(req, res) {
       if (cashError) throw new Error(`خطأ أثناء ترحيل النقدية: ${cashError.message}`);
     }
 
-    // استجابة نهائية ناجحة
     return res.status(200).json({
       success: true,
-      message: `تم الحفظ والترحيل بنجاح تام داخل السكيما [${schemaName}]`,
+      message: `تم إنشاء السكيما وحفظ الفاتورة بنجاح تام داخل [${schemaName}]`,
       data: invoice
     });
 
