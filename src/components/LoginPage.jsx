@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { CapacitorHttp } from '@capacitor/core'; 
-// 🔥 استيراد مكتبة Preferences لضمان تخزين رقم الشركة في الـ Native SharedPreferences للأندرويد
+// 🔥 استيراد مكتبة Preferences لضمان تخزين معرف الشركة في الـ Native SharedPreferences للأندرويد
 import { Preferences } from '@capacitor/preferences';
 import { loginToSupabase } from '../services/supabaseClient';
 
@@ -20,7 +20,7 @@ const LoginPage = ({ onLoginSuccess }) => {
     
     if (!clean) return { valid: false, email: '' };
 
-    // 2. استخراج الجزء الخاص باسم المستخدم فقط (قبل أول علامة @) لمنع التكرار مثل المكتوب في اللقطة
+    // 2. استخراج الجزء الخاص باسم المستخدم فقط (قبل أول علامة @) لمنع التكرار
     let username = clean.split('@')[0];
     
     // إزالة أي نقاط أو رموز زائدة ملتصقة بالنهاية بالخطأ
@@ -73,14 +73,14 @@ const LoginPage = ({ onLoginSuccess }) => {
         const response = await CapacitorHttp.post(options);
 
         if (response.data && response.data.success) {
-          // 🔥 حفظ مزدوج (مستقر وأصلي) لاسم السكيما المستهدفة ديناميكياً
+          // 🔥 حفظ مزدوج (مستقر وأصلي) لاسم الـ Prefix المستهدف ديناميكياً داخل العام لعدم كسر النظام
           await Preferences.set({ key: 'tenant_schema', value: JSON.stringify(response.data.schema) });
           localStorage.setItem('tenant_schema', response.data.schema);
           
           setStatus({
             loading: false,
             error: '',
-            successMessage: 'تم تأسيس الشركة وحفر الـ ERP بنجاح! جاري تسجيل دخولك الآمن...'
+            successMessage: 'تم تأسيس الشركة وحفر جداول الـ ERP المعزولة داخل العام بنجاح! جاري تسجيل دخولك الآمن...'
           });
 
           // تسجيل الدخول التلقائي بعد نجاح إنشاء الحفر الفولاذي
@@ -100,7 +100,7 @@ const LoginPage = ({ onLoginSuccess }) => {
         } else {
           setStatus({
             loading: false,
-            error: response.data?.error || "فشل تأسيس النظام، يرجى مراجعة البيانات",
+            error: response.data?.error || "فشل تأسيس الجداول المخصصة، يرجى مراجعة البيانات"،
             successMessage: ''
           });
         }
@@ -117,19 +117,19 @@ const LoginPage = ({ onLoginSuccess }) => {
           return;
         }
 
-        // 🔥 الاسترجاع الديناميكي للسكيما لحل مشكلة تعدد الأجهزة
+        // 🔥 الاسترجاع الديناميكي لمعرف الشركة لحل مشكلة تعدد الأجهزة
         const cloudSchema = result.user?.user_metadata?.tenant_schema;
 
         if (!cloudSchema) {
           setStatus({
             loading: false,
-            error: "لم يتم العثور على قاعدة بيانات معزولة مرتبطة بهذا الحساب المعتمد",
+            error: "لم يتم العثور على جداول معزولة مرتبطة بهذا الحساب المعتمد داخل السيستم العام",
             successMessage: ''
           });
           return;
         }
 
-        // 🔥 حفظ السكيما محلياً داخل نظام الأندرويد بأعلى درجات الاستقرار
+        // 🔥 حفظ المعرف محلياً داخل نظام الأندرويد بأعلى درجات الاستقرار
         await Preferences.set({ key: 'tenant_schema', value: JSON.stringify(cloudSchema) });
         
         // حفظ بقية عناصر الجلسة العامة بالـ LocalStorage للأندرويد
@@ -163,7 +163,7 @@ const LoginPage = ({ onLoginSuccess }) => {
         <div className="text-center mb-8">
           <h1 className="text-4xl font-black text-white mb-2 tracking-tight">نواة AI</h1>
           <p className="text-violet-200/70 text-sm font-medium">
-            {isRegisterMode ? "تأسيس مؤسسة جديدة ونظام ERP معزول" : "نظام إدارة وعزل الموارد الذكي"}
+            {isRegisterMode ? "تأسيس شركة وعزل البيانات فيزيائياً داخل العام" : "نظام إدارة وعزل الموارد الذكي المطور"}
           </p>
         </div>
 
@@ -229,9 +229,9 @@ const LoginPage = ({ onLoginSuccess }) => {
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle>
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                 </svg>
-                {isRegisterMode ? "جاري حفر السكيما وعزل البنية..." : "جاري فك التشفير والتحقق..."}
+                {isRegisterMode ? "جاري بناء الهيكل العام وعزل الجداول..." : "جاري فك التشفير والتحقق..."}
               </span>
-            ) : isRegisterMode ? "تأسيس النظام وحفر الجداول الفولاذية 🚀" : "دخول آمن للنظام"}
+            ) : isRegisterMode ? "تأسيس النظام وحفر الجداول المعزولة 🚀" : "دخول آمن للنظام المطور"}
           </button>
         </form>
 
@@ -244,12 +244,12 @@ const LoginPage = ({ onLoginSuccess }) => {
             }}
             className="text-sm text-violet-400 hover:text-violet-300 transition-colors underline bg-transparent border-none cursor-pointer font-medium"
           >
-            {isRegisterMode ? "لديك حساب مؤسسة بالفعل؟ سجل دخولك" : "إنشاء حساب شركة ونظام ERP جديد"}
+            {isRegisterMode ? "لديك حساب مؤسسة بالفعل؟ سجل دخولك" : "إنشاء حساب شركة ونظام ERP معزول جديد"}
           </button>
         </div>
 
         <p className="mt-6 text-center text-gray-500 text-xs tracking-wide">
-          بنية تابعة لـ نواة AI ومستضافة عبر عزل سكيمات سوبابيز الفولاذي
+          بنية تابعة لـ نواة AI ومستضافة عبر نظام عزل الجداول المركزي داخل النطاق العام
         </p>
       </div>
     </div>
