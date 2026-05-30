@@ -2,7 +2,6 @@ import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -26,7 +25,12 @@ export default async function handler(req, res) {
   }
 
   try {
-    console.log(`🚀 [تسكين مباشر بدون استعلام نصي] الاسكيما: ${safeSchema} -> الجدول: ${targetTable}`);
+    console.log(`🚀 [تسكين مباشر عبر الاسكيما المخصصة] الاسكيما: ${safeSchema} -> الجدول: ${targetTable}`);
+
+    // 🔥 الحل السحري: إنشاء عميل مخصص لهذا الطلب يستهدف الاسكيما المطلوبة مباشرة
+    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
+      db: { schema: safeSchema }
+    });
 
     // خريطة الحقول المعتمدة لكل جدول في قاعدة البيانات
     const schemaFields = {
@@ -70,9 +74,9 @@ export default async function handler(req, res) {
 
       const filteredInvoice = extractTablePayload(invoiceData, 'invoices');
       
-      // 1. تسكين الفاتورة في جدول الاسكيما مباشرة
+      // 1. تسكين الفاتورة مباشرة (استدعاء اسم الجدول مجرداً لأن الاسكيما محددة مسبقاً في الخيارات)
       const { data: insertedInvoice, error: invErr } = await supabaseAdmin
-        .from(`${safeSchema}.invoices`)
+        .from('invoices')
         .insert([filteredInvoice])
         .select()
         .single();
@@ -85,7 +89,7 @@ export default async function handler(req, res) {
       if (Array.isArray(itemsArray) && itemsArray.length > 0) {
         const filteredItemsPayload = itemsArray.map(item => {
           const itemDoc = {
-            invoice_id: insertedInvoice.id, // ربط الـ Foreign Key بالفاتورة المنشأة حالياً
+            invoice_id: insertedInvoice.id, 
             item_id: item.id || item.item_id,
             quantity: Number(item.quantity || 1),
             unit_price: Number(item.price || item.unit_price || 0)
@@ -95,7 +99,7 @@ export default async function handler(req, res) {
 
         if (filteredItemsPayload.length > 0) {
           const { error: itemsErr } = await supabaseAdmin
-            .from(`${safeSchema}.invoice_items`)
+            .from('invoice_items')
             .insert(filteredItemsPayload);
           
           if (itemsErr) console.error("⚠️ خطأ غير حرج أثناء إدراج حزمة الأصناف:", itemsErr.message);
@@ -115,7 +119,7 @@ export default async function handler(req, res) {
         
         if (filteredCash) {
           const { error: cashErr } = await supabaseAdmin
-            .from(`${safeSchema}.cash_transactions`)
+            .from('cash_transactions')
             .insert([filteredCash]);
           
           if (cashErr) console.error("⚠️ خطأ غير حرج أثناء إدراج حركة النقدية:", cashErr.message);
@@ -130,7 +134,7 @@ export default async function handler(req, res) {
       }
 
       const { data: insertedRow, error: tableErr } = await supabaseAdmin
-        .from(`${safeSchema}.${targetTable}`)
+        .from(targetTable)
         .insert([filteredPayload])
         .select()
         .single();
@@ -150,7 +154,7 @@ export default async function handler(req, res) {
     return res.status(400).json({ 
       success: false, 
       error: error.message,
-      details: "فشل التحقق من صحة البيانات أو قيود الجداول المباشرة."
+      details: "تأكد من تفعيل صلاحيات الوصول للاسكيما المذكورة ومطابقة الحقول."
     });
   }
 }
