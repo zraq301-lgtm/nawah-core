@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { CapacitorHttp } from '@capacitor/core'; 
 // 🔥 استيراد مكتبة Preferences لضمان تخزين معرف الشركة في الـ Native SharedPreferences للأندرويد
 import { Preferences } from '@capacitor/preferences';
-import { loginToSupabase } from '../services/supabaseClient';
 
 const LoginPage = ({ onLoginSuccess }) => {
   const [isRegisterMode, setIsRegisterMode] = useState(false); 
@@ -40,7 +39,7 @@ const LoginPage = ({ onLoginSuccess }) => {
     return { valid: true, email: finalEmail };
   };
 
-  // 🔹 معالجة تسجيل الدخول أو إنشاء حساب جديد
+  // 🔹 معالجة تسجيل الدخول أو إنشاء حساب جديد على نيون
   const handleSubmit = async (e) => {
     e.preventDefault();
     setStatus({ loading: true, error: '', successMessage: '' });
@@ -59,7 +58,7 @@ const LoginPage = ({ onLoginSuccess }) => {
 
     try {
       if (isRegisterMode) {
-        // 🚀 أولاً: وضع التسجيل باستخدام CapacitorHttp لتخطي الـ CORS على الأندرويد
+        // 🚀 أولاً: وضع التسجيل باستخدام CapacitorHttp وتوجيهه لنيون عبر الباك إند
         const options = {
           url: 'https://project-902ma.vercel.app/api/auth/register', 
           headers: { 'Content-Type': 'application/json' },
@@ -73,74 +72,71 @@ const LoginPage = ({ onLoginSuccess }) => {
         const response = await CapacitorHttp.post(options);
 
         if (response.data && response.data.success) {
-          // 🔥 حفظ مزدوج (مستقر وأصلي) لاسم الـ Prefix المستهدف ديناميكياً داخل العام لعدم كسر النظام
-          await Preferences.set({ key: 'tenant_schema', value: JSON.stringify(response.data.schema) });
-          localStorage.setItem('tenant_schema', response.data.schema);
+          const schemaName = response.data.schema;
+
+          // 🔥 حفظ مزدوج ومستقر لاسم السكيما المستهدفة ديناميكياً داخل نيون
+          await Preferences.set({ key: 'tenant_schema', value: JSON.stringify(schemaName) });
+          localStorage.setItem('tenant_schema', schemaName);
+          localStorage.setItem('user_email', targetEmail);
           
           setStatus({
             loading: false,
             error: '',
-            successMessage: 'تم تأسيس الشركة وحفر جداول الـ ERP المعزولة داخل العام بنجاح! جاري تسجيل دخولك الآمن...'
+            successMessage: 'تم تأسيس الشركة وحفر جداول الـ ERP المعزولة داخل نيون بنجاح! جاري توجيهك للوحة التحكم...'
           });
 
-          // تسجيل الدخول التلقائي بعد نجاح إنشاء الحفر الفولاذي
-          const loginResult = await loginToSupabase(targetEmail, formData.password);
-          if (loginResult.success) {
-            const userMetadata = loginResult.user?.user_metadata || {};
-            const schemaName = userMetadata.tenant_schema || response.data.schema;
-
-            // 🔥 حفظ حديدي متوافق بنسبة 100% مع محرك App.jsx
-            await Preferences.set({ key: 'tenant_schema', value: JSON.stringify(schemaName) });
-            localStorage.setItem('supabase_uid', loginResult.user.id);
-            localStorage.setItem('user_email', targetEmail);
-            localStorage.setItem('tenant_schema', schemaName); 
-
-            if (onLoginSuccess) onLoginSuccess();
-          }
+          // تفعيل الدخول فوراً وبأعلى درجات الاستقرار
+          if (onLoginSuccess) onLoginSuccess();
         } else {
           setStatus({
             loading: false,
-            error: response.data?.error || "فشل تأسيس الجداول المخصصة، يرجى مراجعة البيانات",
+            error: response.data?.error || "فشل تأسيس الجداول المخصصة في نيون، يرجى مراجعة البيانات",
             successMessage: ''
           });
         }
       } else {
-        // 🔑 ثانياً: وضع تسجيل الدخول التقليدي (مستقر وعابر للأجهزة والمنصات)
-        const result = await loginToSupabase(targetEmail, formData.password);
+        // 🔑 ثانياً: وضع تسجيل الدخول وتوجيهه لنيون لفحص الحساب المركزي والـ Schema
+        const options = {
+          url: 'https://project-902ma.vercel.app/api/auth/login', // نفس خادم الباك إند للتحقق من نيون
+          headers: { 'Content-Type': 'application/json' },
+          data: {
+            email: targetEmail,
+            password: formData.password
+          }
+        };
 
-        if (!result.success) {
+        const response = await CapacitorHttp.post(options);
+
+        if (response.data && response.data.success) {
+          const cloudSchema = response.data.schema;
+
+          if (!cloudSchema) {
+            setStatus({
+              loading: false,
+              error: "لم يتم العثور على جداول معزولة مرتبطة بهذا الحساب داخل نيون",
+              successMessage: ''
+            });
+            return;
+          }
+
+          // 🔥 حفظ المعرف محلياً داخل نظام الأندرويد لربطه بالـ mutate لاحقاً
+          await Preferences.set({ key: 'tenant_schema', value: JSON.stringify(cloudSchema) });
+          
+          // حفظ بقية عناصر الجلسة العامة بالـ LocalStorage للأندرويد
+          localStorage.setItem('user_email', targetEmail);
+          localStorage.setItem('tenant_schema', cloudSchema); 
+          
+          setStatus({ loading: false, error: '', successMessage: '' });
+
+          if (onLoginSuccess) {
+            onLoginSuccess();
+          }
+        } else {
           setStatus({ 
             loading: false, 
-            error: result.error || "خطأ في البريد الإلكتروني أو كلمة المرور",
+            error: response.data?.error || "خطأ في البريد الإلكتروني أو كلمة المرور داخل نظام نيون المركزي",
             successMessage: ''
           });
-          return;
-        }
-
-        // 🔥 الاسترجاع الديناميكي لمعرف الشركة لحل مشكلة تعدد الأجهزة
-        const cloudSchema = result.user?.user_metadata?.tenant_schema;
-
-        if (!cloudSchema) {
-          setStatus({
-            loading: false,
-            error: "لم يتم العثور على جداول معزولة مرتبطة بهذا الحساب المعتمد داخل السيستم العام",
-            successMessage: ''
-          });
-          return;
-        }
-
-        // 🔥 حفظ المعرف محلياً داخل نظام الأندرويد بأعلى درجات الاستقرار
-        await Preferences.set({ key: 'tenant_schema', value: JSON.stringify(cloudSchema) });
-        
-        // حفظ بقية عناصر الجلسة العامة بالـ LocalStorage للأندرويد
-        localStorage.setItem('supabase_uid', result.user.id);
-        localStorage.setItem('user_email', targetEmail);
-        localStorage.setItem('tenant_schema', cloudSchema); 
-        
-        setStatus({ loading: false, error: '', successMessage: '' });
-
-        if (onLoginSuccess) {
-          onLoginSuccess();
         }
       }
     } catch (err) {
@@ -163,7 +159,7 @@ const LoginPage = ({ onLoginSuccess }) => {
         <div className="text-center mb-8">
           <h1 className="text-4xl font-black text-white mb-2 tracking-tight">نواة AI</h1>
           <p className="text-violet-200/70 text-sm font-medium">
-            {isRegisterMode ? "تأسيس شركة وعزل البيانات فيزيائياً داخل العام" : "نظام إدارة وعزل الموارد الذكي المطور"}
+            {isRegisterMode ? "تأسيس شركة وعزل البيانات فيزيائياً داخل نيون" : "نظام إدارة وعزل الموارد الذكي المطور عبر نيون"}
           </p>
         </div>
 
@@ -229,9 +225,9 @@ const LoginPage = ({ onLoginSuccess }) => {
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle>
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                 </svg>
-                {isRegisterMode ? "جاري بناء الهيكل العام وعزل الجداول..." : "جاري فك التشفير والتحقق..."}
+                {isRegisterMode ? "جاري بناء سكيما نيون وعزل الجداول..." : "جاري فحص الحساب المركزي لنظام نيون..."}
               </span>
-            ) : isRegisterMode ? "تأسيس النظام وحفر الجداول المعزولة 🚀" : "دخول آمن للنظام المطور"}
+            ) : isRegisterMode ? "تأسيس النظام وحفر الجداول المعزولة في نيون 🚀" : "دخول آمن للنظام المطور"}
           </button>
         </form>
 
@@ -249,7 +245,7 @@ const LoginPage = ({ onLoginSuccess }) => {
         </div>
 
         <p className="mt-6 text-center text-gray-500 text-xs tracking-wide">
-          بنية تابعة لـ نواة AI ومستضافة عبر نظام عزل الجداول المركزي داخل النطاق العام
+          بنية تابعة لـ نواة AI ومستضافة عبر نظام عزل الجداول المركزي داخل نيون
         </p>
       </div>
     </div>
