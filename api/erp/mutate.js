@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -25,14 +26,9 @@ export default async function handler(req, res) {
   }
 
   try {
-    console.log(`🚀 [تسكين مباشر عبر الاسكيما المخصصة] الاسكيما: ${safeSchema} -> الجدول: ${targetTable}`);
+    console.log(`🎯 [العبور من البوابة العامة إلى الشركات] الاسكيما: ${safeSchema} -> الجدول: ${targetTable}`);
 
-    // 🔥 الحل السحري: إنشاء عميل مخصص لهذا الطلب يستهدف الاسكيما المطلوبة مباشرة
-    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
-      db: { schema: safeSchema }
-    });
-
-    // خريطة الحقول المعتمدة لكل جدول في قاعدة البيانات
+    // خريطة الحقول المعتمدة بالملي للاسكيما
     const schemaFields = {
       contacts: ['id', 'name', 'type', 'phone', 'tax_number', 'current_balance'],
       items: ['id', 'barcode', 'name', 'item_type', 'available_quantity', 'cost_price', 'sale_price'],
@@ -44,25 +40,35 @@ export default async function handler(req, res) {
       system_logs: ['id', 'user_id', 'action', 'old_details', 'new_details', 'created_at']
     };
 
-    // دالة تصفية الحقول لمنع أخطاء الحقول غير الموجودة بالـ Database
+    const cleanValue = (val) => {
+      if (val === null || val === undefined || val === '') return 'NULL';
+      if (typeof val === 'number' || typeof val === 'boolean') return val;
+      if (typeof val === 'object') return `'${JSON.stringify(val).replace(/'/g, "''")}'`;
+      return `'${String(val).trim().replace(/'/g, "''")}'`;
+    };
+
     const extractTablePayload = (rawDataset, tableName) => {
       const allowedFields = schemaFields[tableName];
       if (!allowedFields) return null;
       const payload = {};
       allowedFields.forEach(field => {
-        if (rawDataset[field] !== undefined && rawDataset[field] !== '') {
-          payload[field] = rawDataset[field];
-        }
+        if (rawDataset[field] !== undefined) payload[field] = rawDataset[field];
       });
       return Object.keys(payload).length > 0 ? payload : null;
     };
 
-    let responseData = null;
+    // دالة تنفيذ الاستعلام المنفرد عبر البوابة لتجنب تداخل الـ CTEs
+    const executeQuery = async (sql) => {
+      const { data: result, error: err } = await supabaseAdmin.rpc('exec_sql', { sql_query: sql });
+      if (err) throw err;
+      return (Array.isArray(result) && result.length > 0) ? result[0] : result;
+    };
+
+    let finalResponseData = null;
 
     if (targetTable === 'invoices') {
       const invoiceData = { ...data };
       
-      // جهوزية واحتساب الأرقام للفاتورة
       invoiceData.gross_amount = Number(invoiceData.gross_amount || 0);
       invoiceData.discount = Number(invoiceData.discount || 0);
       invoiceData.tax_amount = Number(invoiceData.tax_amount || 0);
@@ -73,88 +79,79 @@ export default async function handler(req, res) {
       invoiceData.invoice_type = invoiceData.invoice_type || (action?.toLowerCase().includes('purchase') ? 'purchase' : 'sale');
 
       const filteredInvoice = extractTablePayload(invoiceData, 'invoices');
+      const invCols = Object.keys(filteredInvoice).map(k => `"${k}"`).join(', ');
+      const invVals = Object.values(filteredInvoice).map(cleanValue).join(', ');
+
+      // 1. خبط على البوابة لادخال الفاتورة أولاً والحصول على معرفها (ID)
+      const insertInvoiceSql = `INSERT INTO "${safeSchema}"."invoices" (${invCols}) VALUES (${invVals}) RETURNING *;`;
+      finalResponseData = await executeQuery(insertInvoiceSql);
       
-      // 1. تسكين الفاتورة مباشرة (استدعاء اسم الجدول مجرداً لأن الاسكيما محددة مسبقاً في الخيارات)
-      const { data: insertedInvoice, error: invErr } = await supabaseAdmin
-        .from('invoices')
-        .insert([filteredInvoice])
-        .select()
-        .single();
+      const newInvoiceId = finalResponseData.id;
 
-      if (invErr) throw invErr;
-      responseData = insertedInvoice;
-
-      // 2. تسكين مصفوفة الأصناف المرتبطة بالفاتورة تلقائياً (إن وجدت)
+      // 2. خبط على البوابة لكل صنف بشكل مستقل وآمن تماماً بدون تجميع نصوص معقدة
       const itemsArray = data.items || data.invoice_items || [];
       if (Array.isArray(itemsArray) && itemsArray.length > 0) {
-        const filteredItemsPayload = itemsArray.map(item => {
+        for (const item of itemsArray) {
           const itemDoc = {
-            invoice_id: insertedInvoice.id, 
+            invoice_id: newInvoiceId,
             item_id: item.id || item.item_id,
             quantity: Number(item.quantity || 1),
             unit_price: Number(item.price || item.unit_price || 0)
           };
-          return extractTablePayload(itemDoc, 'invoice_items');
-        }).filter(Boolean);
-
-        if (filteredItemsPayload.length > 0) {
-          const { error: itemsErr } = await supabaseAdmin
-            .from('invoice_items')
-            .insert(filteredItemsPayload);
-          
-          if (itemsErr) console.error("⚠️ خطأ غير حرج أثناء إدراج حزمة الأصناف:", itemsErr.message);
+          const filteredItem = extractTablePayload(itemDoc, 'invoice_items');
+          if (filteredItem) {
+            const itemCols = Object.keys(filteredItem).map(k => `"${k}"`).join(', ');
+            const itemVals = Object.values(filteredItem).map(cleanValue).join(', ');
+            const insertItemSql = `INSERT INTO "${safeSchema}"."invoice_items" (${itemCols}) VALUES (${itemVals});`;
+            await executeQuery(insertItemSql);
+          }
         }
       }
 
-      // 3. تسكين حركة الخزينة التلقائية في حال وجود كاش مدفوع
+      // 3. خبط على البوابة لتسجيل النقدية بالخزينة إذا كانت مدفوعة كاش
       if (invoiceData.paid_amount > 0) {
         const cashDoc = {
-          invoice_id: insertedInvoice.id,
+          invoice_id: newInvoiceId,
           account_id: data.account_id || 1,
           flow_type: invoiceData.invoice_type === 'sale' ? 'in' : 'out',
           amount: invoiceData.paid_amount,
           description: `دفعة نقدية تلقائية للفاتورة رقم: ${invoiceData.invoice_number}`
         };
         const filteredCash = extractTablePayload(cashDoc, 'cash_transactions');
-        
         if (filteredCash) {
-          const { error: cashErr } = await supabaseAdmin
-            .from('cash_transactions')
-            .insert([filteredCash]);
-          
-          if (cashErr) console.error("⚠️ خطأ غير حرج أثناء إدراج حركة النقدية:", cashErr.message);
+          const cashCols = Object.keys(filteredCash).map(k => `"${k}"`).join(', ');
+          const cashVals = Object.values(filteredCash).map(cleanValue).join(', ');
+          const insertCashSql = `INSERT INTO "${safeSchema}"."cash_transactions" (${cashCols}) VALUES (${cashVals});`;
+          await executeQuery(insertCashSql);
         }
       }
 
     } else {
-      // التعامل المباشر مع الجداول العادية الأخرى البسيطة
+      // الجداول العادية البسيطة
       const filteredPayload = extractTablePayload(data, targetTable);
       if (!filteredPayload) {
         throw new Error(`البيانات لا تطابق حقول جدول [${targetTable}] في الاسكيما.`);
       }
 
-      const { data: insertedRow, error: tableErr } = await supabaseAdmin
-        .from(targetTable)
-        .insert([filteredPayload])
-        .select()
-        .single();
+      const columns = Object.keys(filteredPayload).map(key => `"${key}"`).join(', ');
+      const values = Object.values(filteredPayload).map(cleanValue).join(', ');
 
-      if (tableErr) throw tableErr;
-      responseData = insertedRow;
+      const insertSimpleSql = `INSERT INTO "${safeSchema}"."${targetTable}" (${columns}) VALUES (${values}) RETURNING *;`;
+      finalResponseData = await executeQuery(insertSimpleSql);
     }
 
     return res.status(200).json({ 
       success: true, 
-      message: `تم تسكين البيانات والمزامنة السحابية بنجاح داخل الاسكيما [${safeSchema}] والجدول [${targetTable}]`,
-      data: responseData
+      message: `تم العبور من البوابة بنجاح وحفظ البيانات في اسكيما الشركة [${safeSchema}]`,
+      data: finalResponseData
     });
 
   } catch (error) {
-    console.error(`❌ فشل تسكين البيانات المباشر:`, error.message);
+    console.error(`❌ فشل العبور عبر البوابة:`, error.message);
     return res.status(400).json({ 
       success: false, 
       error: error.message,
-      details: "تأكد من تفعيل صلاحيات الوصول للاسكيما المذكورة ومطابقة الحقول."
+      details: "تأكد من مطابقة أسماء حقول الجداول داخل تصفية قواعد البيانات وجرب مجدداً."
     });
   }
 }
