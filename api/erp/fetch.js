@@ -1,4 +1,4 @@
-// pages/api/data/get.js (أو اسم ملف الجلب الخاص بك)
+// pages/api/data/get.js
 import postgres from 'postgres';
 
 export default async function handler(req, res) {
@@ -39,14 +39,34 @@ export default async function handler(req, res) {
       return res.status(400).json({ success: false, error: 'أسماء الجداول أو بيئة العمل تحتوي على رموز غير صالحة' });
     }
 
-    // 🚀 الاستعلام الديناميكي الفولاذي من نيون باستخدام الـ Identifiers الآمنة لـ postgres.js
-    // يقوم بجلب البيانات وترتيبها تنازلياً حسب الـ id وعزلها للمؤسسة المستهدفة
+    // 🚀 الاستعلام الديناميكي من نيون باستخدام الـ Identifiers الآمنة لـ postgres.js
     const dbResult = await sql`
       SELECT * FROM ${sql(safeSchema)}.${sql(safeTable)}
       ORDER BY id DESC
     `;
 
-    // الرد الموحد بالبيانات المطلوبة بنجاح
+    // 🧠 المحرك الذكي للتصنيف: إذا كان الجدول المطلوب هو جدول الجهات والموردين الموحد
+    if (safeTable === 'contacts') {
+      // فرز وتجميع كل فئة وتخصص بناءً على حقل الـ type القياسي لنظام الـ ERP
+      const customers = dbResult.filter(item => item.type === 'customer' || item.type === 'general');
+      const suppliers = dbResult.filter(item => item.type === 'supplier');
+      const employees = dbResult.filter(item => item.type === 'employee');
+
+      // الرد الموحد والمصنف مسبقاً لتسهيل قراءته في واجهات App.jsx مباشرة
+      return res.status(200).json({ 
+        success: true, 
+        table: safeTable,
+        schema: safeSchema,
+        data: dbResult, // المصفوفة الكاملة الخام كما هي
+        categorized: {  // البيانات مفرزة ومصنفة حسب التخصص الحقيقي لها
+          customers: customers,
+          suppliers: suppliers,
+          employees: employees
+        }
+      });
+    }
+
+    // الرد الطبيعي الافتراضي لباقي جداول النظام كالمخزن والفواتير
     return res.status(200).json({ 
       success: true, 
       table: safeTable,
