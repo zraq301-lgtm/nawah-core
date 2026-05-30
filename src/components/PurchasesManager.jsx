@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import { Package, Truck, Calendar, Hash, DollarSign, ArrowRight, Save, ShoppingCart, Bell, Table, AlertTriangle, User } from 'lucide-react';
-import { CapacitorHttp } from '@capacitor/core'; // المحرك العابر للأندرويد
 import DataGrid from './DataGrid';
+
+// 🔥 استيراد ملف الخدمة المركزي الموحد بالروابط والمسارات الخاصة بك
+import { apiService } from '../services/apiService';
 
 const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigger, inventory = [], tenantSchema }) => {
   const [activeView, setActiveView] = useState('menu');
@@ -75,39 +77,30 @@ const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigg
     }
 
     setIsSubmitting(true);
-    const companySchema = getCleanTenantSchema();
 
     try {
-      const options = {
-        url: 'https://project-902ma.vercel.app/api/erp/mutate',
-        headers: { 'Content-Type': 'application/json' },
-        data: {
-          schema: companySchema,
-          data: {                   
-            invoice_number: `REQ-${Date.now().toString().slice(-6)}`,
-            invoice_type: 'purchase_request',
-            description: `طلب نواقص صنف: ${orderRequest.item} - المورد: ${orderRequest.supplier || 'عام'}`,
-            gross_amount: 0,
-            net_amount: 0,
-            paid_amount: 0,
-            // هيكل مصفوفة المدخلات القياسي لـ Supabase للأصناف المعزولة
-            items: [
-              {
-                item_id: Date.now().toString().slice(-4), 
-                name: orderRequest.item,
-                quantity: parseFloat(orderRequest.neededQty) || 0,
-                unit_price: 0
-              }
-            ]
+      // 🚀 استدعاء رابط الحفظ والترحيل (POST) من خلال ملف الخدمة الموحد لـ api/erp/mutate
+      const response = await apiService.createData('purchase_request', {
+        invoice_number: `REQ-${Date.now().toString().slice(-6)}`,
+        invoice_type: 'purchase_request',
+        description: `طلب نواقص صنف: ${orderRequest.item} - المورد: ${orderRequest.supplier || 'عام'}`,
+        gross_amount: 0,
+        net_amount: 0,
+        paid_amount: 0,
+        items: [
+          {
+            item_id: Date.now().toString().slice(-4), 
+            name: orderRequest.item,
+            quantity: parseFloat(orderRequest.neededQty) || 0,
+            unit_price: 0
           }
-        }
-      };
+        ]
+      });
 
-      const response = await CapacitorHttp.post(options);
-      console.log('☁️ نتيجة مزامنة طلب الاحتياج:', response.data);
+      console.log('☁️ نتيجة مزامنة طلب الاحتياج عبر الخدمة الذكية:', response);
       
     } catch (err) {
-      console.warn("☁️ خطأ في الشبكة السحابية للشركة:", err);
+      console.warn("☁️ خطأ في الشبكة السحابية للشركة:", err.message);
     }
 
     if (onOrderTrigger) {
@@ -139,18 +132,16 @@ const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigg
     }
 
     setIsSubmitting(true);
-    const companySchema = getCleanTenantSchema();
     const batchId = `B-${Date.now().toString().slice(-6)}`;
     const totalAmount = parsedQty * parsedPrice;
 
-    // 🔥 الـ Payload المعياري الشامل لـ Supabase لحفظ المشتريات والمخزن والنقدية بضربة واحدة
-    const supabasePayload = {
-      schema: companySchema,
-      data: {
+    try {
+      // 🚀 استدعاء رابط الحفظ والترحيل (POST) من خلال ملف الخدمة الموحد لـ api/erp/mutate لجدول المشتريات
+      const response = await apiService.createData('purchase', {
         invoice_number: batchId,
         invoice_type: 'purchase',
-        contact_id: 1, // رقم المورد العام المثبت بالعلاقات
-        account_id: 1, // رقم الخزينة الرئيسية
+        contact_id: 1, 
+        account_id: 1, 
         contact_name: formData.supplier || 'مورد عام افتراضي',
         gross_amount: totalAmount,
         discount: 0,
@@ -158,39 +149,27 @@ const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigg
         net_amount: totalAmount,
         paid_amount: formData.paymentMethod === 'كاش' ? totalAmount : 0,
         description: `فاتورة مشتريات خامات صنف [${formData.item}] بالوحدة [${formData.unit || 'قطعة'}]`,
-        // 📦 حزمة الأصناف الجاهزة لتسكين المخازن والـ Foreign Keys فوراً
         items: [
           {
-            item_id: isNewItem ? Math.floor(1000 + Math.random() * 9000) : 1, // توليد معرف آمن إذا كان جديداً
+            item_id: isNewItem ? Math.floor(1000 + Math.random() * 9000) : 1, 
             name: formData.item,
             barcode: `BAR-${batchId}`,
             quantity: parsedQty,
             unit_price: parsedPrice
           }
         ]
-      }
-    };
+      });
 
-    try {
-      const options = {
-        url: 'https://project-902ma.vercel.app/api/erp/mutate',
-        headers: { 'Content-Type': 'application/json' },
-        data: supabasePayload // تمرير الحزمة الموحدة كاملة
-      };
-
-      console.log(`📡 جاري ترحيل المدخلات المعيارية إلى السكيما: [${companySchema}]`);
-      const response = await CapacitorHttp.post(options);
-      console.log('☁️ نتيجة التسكين وبناء العلاقات:', response.data);
-
-      if (response.data && response.data.success === false) {
-        throw new Error(response.data.error || 'فشل التسكين بالسيرفر');
-      }
+      console.log('☁️ نتيجة التسكين وبناء العلاقات عبر الخدمة الذكية:', response);
 
       alert(`تم التسكين بنجاح في مخزن الشركة برقم شحنة ${batchId}`);
       
+      // 🔄 إرسال وتوزيع البيانات إلى كود المكون الأب الرئيسي App.jsx لتحديث الواجهة فورياً
       if (typeof onPurchaseComplete === 'function') {
         onPurchaseComplete({
           ...formData,
+          name: formData.item, // توحيد الحقل مع الهيكل البرمجي للأصناف
+          balance: parsedQty,
           quantity: parsedQty,
           price: parsedPrice,
           total: totalAmount,
@@ -347,7 +326,7 @@ const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigg
               type="submit" 
               disabled={isSubmitting}
               style={{ backgroundColor: '#1e5631', width: '100%', padding: '12px', borderRadius: '10px', color: '#fff', border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '1rem', fontWeight: 'bold', cursor: 'pointer', opacity: isSubmitting ? 0.5 : 1 }}>
-              <Save size={20} /> {isSubmitting ? 'جاري ترحيل وحفر الفاتورة بـ Supabase...' : 'حفظ ومزامنة الفاتورة سحابياً'}
+              <Save size={20} /> {isSubmitting ? 'جاري ترحيل وحفر الفاتورة بـ Vercel...' : 'حفظ ومزامنة الفاتورة سحابياً'}
             </button>
           </form>
         </div>
