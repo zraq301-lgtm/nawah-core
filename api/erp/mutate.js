@@ -10,12 +10,18 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
 
   const { schema, data } = req.body; 
-  const prefix = String(schema).trim().toLowerCase(); // اسم الشركة المعزولة (مثل: comp1)
+  // اسم الـ Schema القادم من الفرونت اند (مثال: tenant_1780112530464)
+  const schemaName = String(schema).trim().toLowerCase(); 
+
+  if (!schemaName) {
+    return res.status(400).json({ success: false, error: "اسم الـ Schema مطلوب" });
+  }
 
   try {
-    // 1. إدخال الفاتورة في جدول الفواتير المخصص للشركة
+    // 1. إدخال الفاتورة في جدول invoices داخل الـ Schema المحدد
     const { data: invoice, error: invError } = await supabase
-      .from(`${prefix}_invoices`)
+      .schema(schemaName) // تفعيل البحث داخل الـ Schema الخاص بالـ Tenant
+      .from('invoices')   // اسم الجدول العادي بدون بادئة (Prefix)
       .insert([{
         invoice_number: data.invoice_number,
         invoice_type: data.invoice_type || 'sale',
@@ -32,7 +38,7 @@ export default async function handler(req, res) {
 
     if (invError) throw invError;
 
-    // 2. إدخال الأصناف (سينطلق الـ Trigger تلقائياً لتحديث المخازن الفرعية للشركة!)
+    // 2. إدخال الأصناف في جدول invoice_items داخل الـ Schema المحدد
     const itemsArray = data.items || data.invoice_items || [];
     if (itemsArray.length > 0) {
       const preparedItems = itemsArray.map(item => ({
@@ -43,16 +49,18 @@ export default async function handler(req, res) {
       }));
 
       const { error: itemsError } = await supabase
-        .from(`${prefix}_invoice_items`)
+        .schema(schemaName) // تفعيل البحث داخل الـ Schema
+        .from('invoice_items')
         .insert(preparedItems);
 
       if (itemsError) throw itemsError;
     }
 
-    // 3. ترحيل النقدية إلى خزينة الشركة المعزولة
+    // 3. ترحيل النقدية إلى جدول cash_transactions داخل الـ Schema المحدد
     if (Number(data.paid_amount) > 0) {
       const { error: cashError } = await supabase
-        .from(`${prefix}_cash_transactions`)
+        .schema(schemaName) // تفعيل البحث داخل الـ Schema
+        .from('cash_transactions')
         .insert([{
           account_id: data.account_id || 1,
           flow_type: data.invoice_type === 'sale' ? 'in' : 'out',
@@ -66,7 +74,7 @@ export default async function handler(req, res) {
 
     return res.status(200).json({
       success: true,
-      message: `تم الحفظ بنجاح وتحديث حركة مخازن الشركة [${prefix}] بنجاح تام!`,
+      message: `تم الحفظ بنجاح وتحديث حركة مخازن الـ Schema [${schemaName}] بنجاح تام!`,
       data: invoice
     });
 
