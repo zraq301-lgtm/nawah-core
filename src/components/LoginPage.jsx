@@ -54,7 +54,8 @@ const LoginPage = ({ onLoginSuccess }) => {
       return;
     }
 
-    const targetEmail = emailCheck.email;
+    const targetEmail = emailCheck.email.trim();
+    const targetPassword = formData.password;
 
     try {
       if (isRegisterMode) {
@@ -62,17 +63,20 @@ const LoginPage = ({ onLoginSuccess }) => {
         const options = {
           url: 'https://project-902ma.vercel.app/api/auth/register', 
           headers: { 'Content-Type': 'application/json' },
-          data: {
+          data: JSON.stringify({
             companyName: formData.companyName.trim(),
             adminEmail: targetEmail,
-            adminPassword: formData.password
-          }
+            adminPassword: targetPassword
+          })
         };
 
         const response = await CapacitorHttp.post(options);
+        
+        // معالجة البيانات المستلمة سواء كانت نصية أو كائن جاهز
+        const resData = typeof response.data === 'string' ? JSON.parse(response.data) : response.data;
 
-        if (response.data && response.data.success) {
-          const schemaName = response.data.schema;
+        if (resData && resData.success) {
+          const schemaName = resData.schema;
 
           // 🔥 حفظ مزدوج ومستقر لاسم السكيما المستهدفة ديناميكياً
           await Preferences.set({ key: 'tenant_schema', value: JSON.stringify(schemaName) });
@@ -90,25 +94,28 @@ const LoginPage = ({ onLoginSuccess }) => {
         } else {
           setStatus({
             loading: false,
-            error: response.data?.error || "تعذر إنشاء الحساب، يرجى التحقق من البيانات المدخلة وتكرار المحاولة",
+            error: resData?.error || "تعذر إنشاء الحساب، يرجى التحقق من البيانات المدخلة وتكرار المحاولة",
             successMessage: ''
           });
         }
       } else {
-        // 🔑 ثانياً: وضع تسجيل الدخول التقليدي
+        // 🔑 ثانياً: وضع تسجيل الدخول المطور والآمن لمنع مشاكل القراءة في الـ Payload
         const options = {
           url: 'https://project-902ma.vercel.app/api/auth/login', 
           headers: { 'Content-Type': 'application/json' },
-          data: {
+          data: JSON.stringify({
             email: targetEmail,
-            password: formData.password
-          }
+            password: targetPassword
+          })
         };
 
         const response = await CapacitorHttp.post(options);
+        
+        // تحصين فحص صياغة البيانات العائدة من السيرفر لمنع أي خلط للمتغيرات داخل الأندرويد
+        const resData = typeof response.data === 'string' ? JSON.parse(response.data) : response.data;
 
-        if (response.data && response.data.success) {
-          const cloudSchema = response.data.schema;
+        if (resData && resData.success) {
+          const cloudSchema = resData.schema;
 
           if (!cloudSchema) {
             setStatus({
@@ -134,7 +141,7 @@ const LoginPage = ({ onLoginSuccess }) => {
         } else {
           setStatus({ 
             loading: false, 
-            error: response.data?.error || "خطأ في البريد الإلكتروني أو كلمة المرور، يرجى إعادة المحاولة",
+            error: resData?.error || "خطأ في البريد الإلكتروني أو كلمة المرور، يرجى إعادة المحاولة",
             successMessage: ''
           });
         }
