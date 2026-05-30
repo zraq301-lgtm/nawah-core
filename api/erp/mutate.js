@@ -1,8 +1,8 @@
 // pages/api/erp/mutate.js
-import { createClient } from '@supabase/supabase-js';
+import postgres from 'postgres';
 
 export default async function handler(req, res) {
-  // 🛡️ تأمين الاتصال العابر وسماحيات الكورز (CORS) لهواتف الأندرويد
+  // 🛡️ تفعيل الـ CORS الكامل لهواتف الأندرويد (Capacitor)
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
@@ -14,12 +14,11 @@ export default async function handler(req, res) {
   
   if (!schema) return res.status(400).json({ success: false, error: "اسم الـ Schema مطلوب" });
   
-  // تأمين معيار الحروف الصغيرة قسراً داخل السيرفر لضمان ثبات الهيكل السحابي
+  // تأمين معيار الحروف الصغيرة قسراً لاسم السكيما لضمان ثبات الهيكل في نيون
   const schemaName = String(schema).trim().toLowerCase(); 
 
-  const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, {
-    auth: { persistSession: false }
-  });
+  // 🔌 فتح اتصال فوري وسريع بمشروع نيون الأب عبر المتغير الموحد
+  const sql = postgres(process.env.DATABASE_URL, { ssl: 'require' });
 
   try {
     const targetContactId = data.contact_id ? Number(data.contact_id) : 1;
@@ -34,96 +33,80 @@ export default async function handler(req, res) {
     // 💡 تحديد تصنيف جهة التعامل بناءً على نوع الفاتورة القادمة من الواجهة
     const contactType = (data.invoice_type === 'purchase' || data.invoice_type === 'purchase_request') ? 'supplier' : 'customer';
 
-    // 1️⃣ تأمين الحسابات والموردين/العملاء (Upsert المعياري لـ Supabase)
-    await supabase.schema(schemaName).from('contacts').upsert(
-      { id: targetContactId, name: data.contact_name || 'جهة تعامل عامة', type: contactType },
-      { onConflict: 'id' }
-    );
+    let savedInvoice = null;
 
-    await supabase.schema(schemaName).from('accounts').upsert(
-      { id: targetAccountId, account_name: 'الخزينة الرئيسية', account_type: 'cash' },
-      { onConflict: 'id' }
-    );
+    // 🚀 بدء عملية Transaction موحدة في نيون لحماية البيانات من التجزؤ
+    await sql.begin(async (tx) => {
 
-    // 2️⃣ إدخال رأس الفاتورة أو طلب الاحتياج
-    const { data: invoice, error: invError } = await supabase
-      .schema(schemaName)
-      .from('invoices')
-      .insert([{
-        invoice_number: String(data.invoice_number),
-        invoice_type: data.invoice_type || 'sale',
-        contact_id: targetContactId,
-        gross_amount: grossAmount,
-        discount: discount,
-        tax_amount: taxAmount,
-        net_amount: netAmount,
-        paid_amount: paidAmount,
-        remaining_amount: remainingAmount,
-        description: data.description || null
-      }])
-      .select()
-      .single();
+      // 1️⃣ تأمين الحسابات والموردين/العملاء (Upsert الصافي في الـ PostgreSQL)
+      await tx`
+        INSERT INTO ${tx(schemaName)}.contacts (id, name, type)
+        VALUES (${targetContactId}, ${data.contact_name || 'جهة تعامل عامة'}, ${contactType})
+        ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, type = EXCLUDED.type
+      `;
 
-    if (invError) throw new Error(`خطأ الفاتورة: ${invError.message}`);
+      await tx`
+        INSERT INTO ${tx(schemaName)}.accounts (id, account_name, account_type)
+        VALUES (${targetAccountId}, 'الخزينة الرئيسية', 'cash')
+        ON CONFLICT (id) DO NOTHING
+      `;
 
-    // 3️⃣ تفكيك وإدخال مصفوفة الأصناف (invoice_items) المنبثقة من شاشة المشتريات
-    const itemsArray = data.items || data.invoice_items || [];
-    if (itemsArray.length > 0) {
-      const preparedItems = [];
-      
-      for (const item of itemsArray) {
-        const currentItemId = item.item_id || item.id || 1;
+      // 2️⃣ إدخال رأس الفاتورة أو طلب الاحتياج وجلب السطر المضاف فوراً
+      const [invoice] = await tx`
+        INSERT INTO ${tx(schemaName)}.invoices (
+          invoice_number, invoice_type, contact_id, gross_amount, 
+          discount, tax_amount, net_amount, paid_amount, remaining_amount, description
+        ) VALUES (
+          ${String(data.invoice_number)}, ${data.invoice_type || 'sale'}, ${targetContactId}, ${grossAmount}, 
+          ${discount}, ${taxAmount}, ${netAmount}, ${paidAmount}, ${remainingAmount}, ${data.description || null}
+        )
+        RETURNING *
+      `;
 
-        // مزامنة وجود الصنف في المخزن أولاً (تجنب كسر قيود العلاقات المتينة)
-        await supabase.schema(schemaName).from('items').upsert(
-          { 
-            id: Number(currentItemId), 
-            name: item.name || 'صنف افتراضي', 
-            item_type: 'product',
-            barcode: item.barcode || `BAR-${currentItemId}`
-          },
-          { onConflict: 'id' }
-        );
+      if (!invoice) throw new Error("فشل إدخال رأس الفاتورة في نيون");
+      savedInvoice = invoice;
 
-        preparedItems.push({
-          invoice_id: invoice.id,
-          item_id: Number(currentItemId),
-          quantity: Number(item.quantity || 1),
-          unit_price: Number(item.unit_price || item.price || 0)
-        });
+      // 3️⃣ تفكيك وإدخال مصفوفة الأصناف (invoice_items)
+      const itemsArray = data.items || data.invoice_items || [];
+      if (itemsArray.length > 0) {
+        
+        for (const item of itemsArray) {
+          const currentItemId = item.item_id || item.id || 1;
+
+          // مزامنة وجود الصنف في المخزن (Upsert) لمنع كسر قيود العلاقات المتينة
+          await tx`
+            INSERT INTO ${tx(schemaName)}.items (id, name, item_type, barcode)
+            VALUES (${Number(currentItemId)}, ${item.name || 'صنف افتراضي'}, 'product', ${item.barcode || `BAR-${currentItemId}`})
+            ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, barcode = EXCLUDED.barcode
+          `;
+
+          // إدخال تفاصيل الصنف المربوط بالفاتورة
+          await tx`
+            INSERT INTO ${tx(schemaName)}.invoice_items (invoice_id, item_id, quantity, unit_price)
+            VALUES (${invoice.id}, ${Number(currentItemId)}, ${Number(item.quantity || 1)}, ${Number(item.unit_price || item.price || 0)})
+          `;
+        }
       }
 
-      const { error: itemsError } = await supabase
-        .schema(schemaName)
-        .from('invoice_items')
-        .insert(preparedItems);
+      // 4️⃣ ترحيل السند المالي وحركة النقدية تلقائياً بناءً على طبيعة العملية المالية
+      if (paidAmount > 0) {
+        const cashFlowType = data.invoice_type === 'purchase' ? 'out' : 'in';
 
-      if (itemsError) throw new Error(`خطأ الأصناف: ${itemsError.message}`);
-    }
+        await tx`
+          INSERT INTO ${tx(schemaName)}.cash_transactions (account_id, flow_type, amount, invoice_id, description)
+          VALUES (
+            ${targetAccountId}, ${cashFlowType}, ${paidAmount}, ${invoice.id}, 
+            ${data.description || `دفعة نقدية للفاتورة رقم: ${data.invoice_number}`}
+          )
+        `;
+      }
+    });
 
-    // 4️⃣ ترحيل السند المالي وحركة النقدية تلقائياً بناءً على طبيعة العملية المالية
-    if (paidAmount > 0) {
-      // إذا كانت مشتريات تخرج الأموال من الخزينة (out)، وإذا كانت مبيعات تدخل الخزينة (in)
-      const cashFlowType = data.invoice_type === 'purchase' ? 'out' : 'in';
-
-      const { error: cashError } = await supabase
-        .schema(schemaName)
-        .from('cash_transactions')
-        .insert([{
-          account_id: targetAccountId,
-          flow_type: cashFlowType,
-          amount: paidAmount,
-          invoice_id: invoice.id,
-          description: data.description || `دفعة نقدية للفاتورة رقم: ${data.invoice_number}`
-        }]);
-
-      if (cashError) throw new Error(`خطأ حركة النقدية: ${cashError.message}`);
-    }
-
-    // إرجاع رد قياسي معترف به من قبل مكون الـ React الخاص بك
-    return res.status(200).json({ success: true, data: invoice });
+    // إرجاع رد قياسي متوافق مع شاشات الـ React بالأندرويد
+    return res.status(200).json({ success: true, data: savedInvoice });
 
   } catch (error) {
+    console.error("❌ خطأ عملية التعديل في نيون:", error.message);
     return res.status(400).json({ success: false, error: error.message });
   }
 }
