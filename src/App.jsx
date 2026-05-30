@@ -31,6 +31,10 @@ const App = () => {
   const [productionHistory, setProductionHistory] = useState([]);
   const [isSyncing, setIsSyncing] = useState(false);
   
+  // ⚙️ إضافة الحالات البرمجية لإدارة وتخزين العملاء والموردين المزامنة سحابياً
+  const [customers, setCustomers] = useState([]);
+  const [suppliers, setSuppliers] = useState([]);
+  
   // 🔥 إضافة المتغير السحري الخاص برقم الشركة (السكيما) المتصل بالـ API
   const [tenantSchema, setTenantSchema] = useState('public');
 
@@ -142,10 +146,10 @@ const App = () => {
     });
   };
 
-  // --- دالة المزامنة السحابية الذكية (سحب البيانات وتحديث الواجهة) ---
+  // --- دالة المزامنة السحابية الذكية المحدثة (سحب المخزن والجهات وتحديث الواجهة) ---
   const syncCloudData = async () => {
     try {
-      // 🚀 سحب البيانات السحابية الحية لجدول الـ stock باستخدام الرابط المخصص الموحد
+      // 🚀 1. سحب البيانات السحابية الحية لجدول الـ stock باستخدام الرابط المخصص الموحد
       const cloudResult = await apiService.getData('stock');
       if (cloudResult && cloudResult.success && cloudResult.data) {
         const cloudStock = cloudResult.data.map(item => ({
@@ -157,10 +161,50 @@ const App = () => {
         const finalizedStock = groupItems(cloudStock);
         setStock(finalizedStock);
         await storage.save('stock', finalizedStock);
-        triggerAndroidNotification('تحديث النظام', '📥 تم مزامنة بيانات المخازن السحابية بنجاح.');
+      }
+
+      // 📥 2. جلب بيانات جدول الجهات (contacts) الموحد وتوزيعها على العملاء والموردين
+      const contactsResult = await apiService.getData('contacts');
+      if (contactsResult && contactsResult.success && contactsResult.data) {
+        const allContacts = contactsResult.data;
+        
+        // فرز العملاء والموردين بناءً على حقل النوع (type) المحاسبي القياسي لقواعد ERP
+        const fetchedCustomers = allContacts.filter(c => c.type === 'customer' || c.type === 'general');
+        const fetchedSuppliers = allContacts.filter(s => s.type === 'supplier');
+        
+        setCustomers(fetchedCustomers);
+        setSuppliers(fetchedSuppliers);
+        
+        await storage.save('customers', fetchedCustomers);
+        await storage.save('suppliers', fetchedSuppliers);
+        
+        triggerAndroidNotification('تحديث النظام', '📥 تم مزامنة بيانات المخازن والعملاء السحابية بنجاح.');
       }
     } catch (apiErr) {
       console.warn("⚠️ لم يتم تحديث السيرفر السحابي، جاري استخدام القاعدة المحلية الاحتياطية:", apiErr.message);
+    }
+  };
+
+  // --- دالة حفظ وإضافة العملاء سحابياً وتحديث الحالة الفورية لقائمة الاختيار ---
+  const handleSaveCustomer = async (newCustomer) => {
+    // تحديث الواجهة محلياً فوراً لمنع بطء التجاوب على الهاتف
+    const updatedCustomers = [...customers, newCustomer];
+    setCustomers(updatedCustomers);
+    await storage.save('customers', updatedCustomers);
+
+    try {
+      // ترحيل العميل لجدول الحسابات الموحد بقاعدة البيانات السحابية بنوع customer
+      await apiService.createData('contacts', {
+        id: newCustomer.id,
+        name: newCustomer.name,
+        phone: newCustomer.phone,
+        address: newCustomer.address,
+        type: 'customer'
+      });
+      triggerAndroidNotification('إدارة العملاء', `👥 تم حفظ العميل [${newCustomer.name}] ومزامنته بالسيرفر.`);
+      await syncCloudData(); // إعادة جلب للتأكد التام من مطابقة الواجهات
+    } catch (err) {
+      console.error("تم حفظ العميل محلياً وتأخر الرفع للسيرفر:", err.message);
     }
   };
 
@@ -182,11 +226,15 @@ const App = () => {
 
     const localStock = await storage.load('stock');
     const localHistory = await storage.load('productionHistory');
+    const localCustomers = await storage.load('customers');
+    const localSuppliers = await storage.load('suppliers');
     
     if (localStock) setStock(localStock);
     if (localHistory) setProductionHistory(localHistory);
+    if (localCustomers) setCustomers(localCustomers);
+    if (localSuppliers) setSuppliers(localSuppliers);
 
-    // 🚀 بدء المزامنة الخلفية للسيرفر لضشان جلب آخر تعديلات
+    // 🚀 بدء المزامنة الخلفية للسيرفر لضمان جلب آخر تعديلات
     if (savedSchema && savedAuth === true) {
       await syncCloudData();
     }
@@ -344,6 +392,7 @@ const App = () => {
             setStock={setStock} 
             tenantSchema={tenantSchema} 
             stats={stats}
+            suppliers={suppliers} // تمرير الموردين المزامنين سحابياً لشاشة المشتريات
             onPurchaseComplete={syncCloudData} 
           />
         );
@@ -355,6 +404,7 @@ const App = () => {
             setStock={setStock} 
             stats={stats} 
             tenantSchema={tenantSchema} 
+            customers={customers} // تمرير العملاء المزامنين سحابياً لشاشة فواتير المبيعات
             onSalesComplete={syncCloudData}
           />
         );
@@ -385,6 +435,8 @@ const App = () => {
             tenantSchema={tenantSchema} 
             stats={stats}
             stock={stock}
+            suppliers={suppliers}
+            setSuppliers={setSuppliers}
           />
         );
       case 'financials':
@@ -413,6 +465,8 @@ const App = () => {
             onBack={backToDashboard} 
             tenantSchema={tenantSchema} 
             stats={stats}
+            customers={customers} // جلب وعرض بيانات العملاء من قاعدة البيانات السحابية الحية
+            onAddCustomer={handleSaveCustomer} // تمرير دالة الحفظ السحابي وتحديث الـ State
           />
         );
       case 'staff':
