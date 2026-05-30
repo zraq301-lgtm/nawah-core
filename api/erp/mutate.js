@@ -26,9 +26,9 @@ export default async function handler(req, res) {
   }
 
   try {
-    console.log(`🎯 [العبور من البوابة العامة إلى الشركات] الاسكيما: ${safeSchema} -> الجدول: ${targetTable}`);
+    console.log(`🎯 [العبور الآمن من البوابة] الاسكيما: ${safeSchema} -> الجدول: ${targetTable}`);
 
-    // خريطة الحقول المعتمدة بالملي للاسكيما
+    // خريطة الحقول المعتمدة للاسكيما
     const schemaFields = {
       contacts: ['id', 'name', 'type', 'phone', 'tax_number', 'current_balance'],
       items: ['id', 'barcode', 'name', 'item_type', 'available_quantity', 'cost_price', 'sale_price'],
@@ -57,7 +57,7 @@ export default async function handler(req, res) {
       return Object.keys(payload).length > 0 ? payload : null;
     };
 
-    // دالة تنفيذ الاستعلام المنفرد عبر البوابة لتجنب تداخل الـ CTEs
+    // 🔥 تعديل دالة التنفيذ: إجبار محرك الـ RPC على استقبال الاستعلام كـ SELECT مغلف لمنع انهيار "INTO"
     const executeQuery = async (sql) => {
       const { data: result, error: err } = await supabaseAdmin.rpc('exec_sql', { sql_query: sql });
       if (err) throw err;
@@ -82,13 +82,20 @@ export default async function handler(req, res) {
       const invCols = Object.keys(filteredInvoice).map(k => `"${k}"`).join(', ');
       const invVals = Object.values(filteredInvoice).map(cleanValue).join(', ');
 
-      // 1. خبط على البوابة لادخال الفاتورة أولاً والحصول على معرفها (ID)
-      const insertInvoiceSql = `INSERT INTO "${safeSchema}"."invoices" (${invCols}) VALUES (${invVals}) RETURNING *;`;
-      finalResponseData = await executeQuery(insertInvoiceSql);
+      // تغليف جملة الإدخال داخل تعبير SELECT موجه ليرضي بوابة الـ RPC
+      const insertInvoiceSql = `
+        WITH inserted_rows AS (
+          INSERT INTO "${safeSchema}"."invoices" (${invCols}) 
+          VALUES (${invVals}) 
+          RETURNING *
+        )
+        SELECT * FROM inserted_rows;
+      `;
       
+      finalResponseData = await executeQuery(insertInvoiceSql);
       const newInvoiceId = finalResponseData.id;
 
-      // 2. خبط على البوابة لكل صنف بشكل مستقل وآمن تماماً بدون تجميع نصوص معقدة
+      // 2. إدخال الأصناف بشكل تتابعي مغلف بـ SELECT
       const itemsArray = data.items || data.invoice_items || [];
       if (Array.isArray(itemsArray) && itemsArray.length > 0) {
         for (const item of itemsArray) {
@@ -102,13 +109,21 @@ export default async function handler(req, res) {
           if (filteredItem) {
             const itemCols = Object.keys(filteredItem).map(k => `"${k}"`).join(', ');
             const itemVals = Object.values(filteredItem).map(cleanValue).join(', ');
-            const insertItemSql = `INSERT INTO "${safeSchema}"."invoice_items" (${itemCols}) VALUES (${itemVals});`;
+            
+            const insertItemSql = `
+              WITH inserted_item AS (
+                INSERT INTO "${safeSchema}"."invoice_items" (${itemCols}) 
+                VALUES (${itemVals}) 
+                RETURNING *
+              )
+              SELECT * FROM inserted_item;
+            `;
             await executeQuery(insertItemSql);
           }
         }
       }
 
-      // 3. خبط على البوابة لتسجيل النقدية بالخزينة إذا كانت مدفوعة كاش
+      // 3. إدخال حركة الخزينة التلقائية مغلفة بـ SELECT
       if (invoiceData.paid_amount > 0) {
         const cashDoc = {
           invoice_id: newInvoiceId,
@@ -121,13 +136,21 @@ export default async function handler(req, res) {
         if (filteredCash) {
           const cashCols = Object.keys(filteredCash).map(k => `"${k}"`).join(', ');
           const cashVals = Object.values(filteredCash).map(cleanValue).join(', ');
-          const insertCashSql = `INSERT INTO "${safeSchema}"."cash_transactions" (${cashCols}) VALUES (${cashVals});`;
+          
+          const insertCashSql = `
+            WITH inserted_cash AS (
+              INSERT INTO "${safeSchema}"."cash_transactions" (${cashCols}) 
+              VALUES (${cashVals}) 
+              RETURNING *
+            )
+            SELECT * FROM inserted_cash;
+          `;
           await executeQuery(insertCashSql);
         }
       }
 
     } else {
-      // الجداول العادية البسيطة
+      // الجداول العادية البسيطة مغلفة بـ SELECT لمنع مشكلة الـ INTO
       const filteredPayload = extractTablePayload(data, targetTable);
       if (!filteredPayload) {
         throw new Error(`البيانات لا تطابق حقول جدول [${targetTable}] في الاسكيما.`);
@@ -136,7 +159,14 @@ export default async function handler(req, res) {
       const columns = Object.keys(filteredPayload).map(key => `"${key}"`).join(', ');
       const values = Object.values(filteredPayload).map(cleanValue).join(', ');
 
-      const insertSimpleSql = `INSERT INTO "${safeSchema}"."${targetTable}" (${columns}) VALUES (${values}) RETURNING *;`;
+      const insertSimpleSql = `
+        WITH inserted_simple AS (
+          INSERT INTO "${safeSchema}"."${targetTable}" (${columns}) 
+          VALUES (${values}) 
+          RETURNING *
+        )
+        SELECT * FROM inserted_simple;
+      `;
       finalResponseData = await executeQuery(insertSimpleSql);
     }
 
