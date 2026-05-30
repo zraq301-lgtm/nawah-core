@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Preferences } from '@capacitor/preferences';
 import { App as AppLauncher } from '@capacitor/app';
+import { LocalNotifications } from '@capacitor/local-notifications'; // 🔔 محرك إشعارات الأندرويد الفولاذي
 import Swal from 'sweetalert2';
 
 // 🔥 استيراد ملف الخدمة المركزي الموحد بالروابط الخاصة بك
@@ -30,12 +31,16 @@ const App = () => {
   // 🔥 إضافة المتغير السحري الخاص برقم الشركة (السكيما) المتصل بالـ API
   const [tenantSchema, setTenantSchema] = useState('public');
 
+  // 🛡️ حالات التحكم بالمرور والبقاء داخل التطبيق لضمان عدم الخروج التلقائي
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [checkingAuth, setCheckingAuth] = useState(true);
+
   // --- المحرك المحلي الفولاذي والأكثر استقراراً (Offline-First Engine) ---
   const storage = {
     save: async (key, data) => {
       try {
         const stringifiedData = JSON.stringify(data);
-        // Tالتخزين الأصلي والأكثر أماناً داخل SharedPreferences للأندرويد
+        // التخزين الأصلي والأكثر أماناً داخل SharedPreferences للأندرويد
         await Preferences.set({ key, value: stringifiedData });
         // نسخة احتياطية إضافية للويب والمتصفح لحماية مزدوجة
         localStorage.setItem(key, stringifiedData); 
@@ -56,6 +61,42 @@ const App = () => {
         console.error(`خطأ أثناء قراءة البيانات للمفتاح ${key}:`, e);
         return null;
       }
+    }
+  };
+
+  // 🔔 محرك طلب تصريح وتشغيل إشعارات الأندرويد
+  useEffect(() => {
+    const requestNotificationPermission = async () => {
+      try {
+        const permission = await LocalNotifications.checkPermissions();
+        if (permission.display !== 'granted') {
+          await LocalNotifications.requestPermissions();
+        }
+      } catch (err) {
+        console.error('خطأ أثناء طلب تصريح الإشعارات:', err);
+      }
+    };
+    requestNotificationPermission();
+  }, []);
+
+  // دالة إرسال إشعار أندرويد سريع ونظيف
+  const triggerAndroidNotification = async (title, body) => {
+    try {
+      await LocalNotifications.schedule({
+        notifications: [
+          {
+            title: title,
+            body: body,
+            id: Math.floor(Math.random() * 100000),
+            schedule: { at: new Date(Date.now() + 1000) }, // يظهر بعد ثانية واحدة فوراً
+            sound: 'default',
+            actionTypeId: '',
+            extra: null
+          }
+        ]
+      });
+    } catch (err) {
+      console.warn('فشل إرسال الإشعار للنظام:', err);
     }
   };
 
@@ -116,6 +157,7 @@ const App = () => {
         const finalizedStock = groupItems(cloudStock);
         setStock(finalizedStock);
         await storage.save('stock', finalizedStock);
+        triggerAndroidNotification('تحديث النظام', '📥 تم مزامنة بيانات المخازن السحابية بنجاح.');
       }
     } catch (apiErr) {
       console.warn("⚠️ لم يتم تحديث السيرفر السحابي، جاري استخدام القاعدة المحلية الاحتياطية:", apiErr.message);
@@ -126,6 +168,12 @@ const App = () => {
   const fetchLocalData = useCallback(async () => {
     setIsSyncing(true);
     
+    // 🛡️ فحص ذكي مسبق لحالة تسجيل الدخول للحفاظ على بقاء المستخدم دائماً داخلياً
+    const savedAuth = await storage.load('is_logged_in');
+    if (savedAuth === true) {
+      setIsLoggedIn(true);
+    }
+
     // 🔥 جلب رقم السكيما المخزن محلياً باسم 'tenant_schema' وتحديث الـ State
     const savedSchema = await storage.load('tenant_schema');
     if (savedSchema) {
@@ -139,12 +187,24 @@ const App = () => {
     if (localHistory) setProductionHistory(localHistory);
 
     // 🚀 بدء المزامنة الخلفية للسيرفر لضمان جلب آخر تعديلات
-    if (savedSchema) {
+    if (savedSchema && savedAuth === true) {
       await syncCloudData();
     }
 
+    setCheckingAuth(false);
     setIsSyncing(false);
   }, []);
+
+  // --- دالة مصاحبة لاستكمال وحفظ تسجيل الدخول لربطها بصفحة التسجيل لديك ---
+  const handleLoginSuccess = async (schema) => {
+    setTenantSchema(schema);
+    setIsLoggedIn(true);
+    await storage.save('is_logged_in', true);
+    await storage.save('tenant_schema', schema);
+    await syncCloudData();
+    triggerAndroidNotification('أهلاً بك', '🔐 تم تسجيل الدخول واستعادة السكيما المعزولة.');
+    setActivePage('dashboard');
+  };
 
   // --- دالة حفظ الإنتاج وتحديث المخزن التلقائي ---
   const handleSaveProduction = async (newProduction) => {
@@ -160,6 +220,7 @@ const App = () => {
         total_actual_cost: parseFloat(newProduction.totalActualCost || 0),
         details: JSON.stringify(newProduction)
       });
+      triggerAndroidNotification('إدارة الإنتاج', '🏭 تم ترحيل حركة التشغيل والإنتاج الحالية بنجاح.');
     } catch (err) {
       console.error("فشل المزامنة اللحظية لعملية الإنتاج:", err.message);
     }
@@ -189,6 +250,7 @@ const App = () => {
         barcode: newItem.barcode || ''
       });
       
+      triggerAndroidNotification('المخازن', `📦 تم إضافة وتحديث الصنف [${formattedItem.name}] سحابياً.`);
       // إعادة تحديث الواجهة للتأكد من المزامنة
       await syncCloudData();
     } catch (err) {
@@ -207,6 +269,7 @@ const App = () => {
       setProductionHistory(updatedHistory);
       await storage.save('productionHistory', updatedHistory);
     }
+    triggerAndroidNotification('تعديل السجلات', '🗑️ تم إزالة العنصر المحدّد من القواعد المحلية.');
     Swal.fire('تم الحذف', 'تم إزالة العنصر من السجلات المحلية الموحدة', 'success');
   };
 
@@ -229,7 +292,7 @@ const App = () => {
     };
   }, [stock, productionHistory]);
 
-  // --- محرك التوجيه الحقيقي لربط وعرض المكونات الفعلية بنسبة 100% ---
+  // --- محرك التوجيه الموحد لإرسال واستلام البيانات من وإلى جميع الأقسام بنسبة 100% ---
   const renderPage = () => {
     const backToDashboard = () => setActivePage('dashboard');
 
@@ -242,7 +305,8 @@ const App = () => {
             stock={stock} 
             stats={stats}
             onDeleteItem={handleDelete}
-            tenantSchema={tenantSchema} // 🔥 تمرير السكيما
+            tenantSchema={tenantSchema}
+            onRefresh={syncCloudData}
           />
         );
       case 'inventory':
@@ -253,7 +317,10 @@ const App = () => {
             setStock={setStock} 
             onDeleteItem={handleDelete}
             onInventoryEntry={handleSaveInventory} 
-            tenantSchema={tenantSchema} // 🔥 تمرير السكيما
+            tenantSchema={tenantSchema}
+            stockData={stock} 
+            loading={isSyncing} 
+            onRefresh={syncCloudData} 
           />
         );
       case 'production':
@@ -263,29 +330,113 @@ const App = () => {
             stock={stock} 
             setStock={setStock} 
             onSaveProduction={handleSaveProduction} 
-            tenantSchema={tenantSchema} // 🔥 تمرير السكيما
+            tenantSchema={tenantSchema}
+            productionHistory={productionHistory}
+            stats={stats}
+            onRefresh={syncCloudData}
           />
         );
       case 'purchases':
-        return <PurchasesManager onBack={backToDashboard} stock={stock} setStock={setStock} tenantSchema={tenantSchema} />;
+        return (
+          <PurchasesManager 
+            onBack={backToDashboard} 
+            stock={stock} 
+            setStock={setStock} 
+            tenantSchema={tenantSchema} 
+            stats={stats}
+            onPurchaseComplete={syncCloudData} 
+          />
+        );
       case 'sales':
-        return <Sales onBack={backToDashboard} stock={stock} setStock={setStock} stats={stats} tenantSchema={tenantSchema} />;
+        return (
+          <Sales 
+            onBack={backToDashboard} 
+            stock={stock} 
+            setStock={setStock} 
+            stats={stats} 
+            tenantSchema={tenantSchema} 
+            onSalesComplete={syncCloudData}
+          />
+        );
       case 'waste':
-        return <Waste onBack={backToDashboard} stock={stock} setStock={setStock} onDeleteItem={handleDelete} tenantSchema={tenantSchema} />;
+        return (
+          <Waste 
+            onBack={backToDashboard} 
+            stock={stock} 
+            setStock={setStock} 
+            onDeleteItem={handleDelete} 
+            tenantSchema={tenantSchema}
+            stats={stats}
+          />
+        );
       case 'expenses':
-        return <Expenses onBack={backToDashboard} stats={stats} tenantSchema={tenantSchema} />;
+        return (
+          <Expenses 
+            onBack={backToDashboard} 
+            stats={stats} 
+            tenantSchema={tenantSchema} 
+            onRefresh={syncCloudData}
+          />
+        );
       case 'suppliers':
-        return <Suppliers onBack={backToDashboard} tenantSchema={tenantSchema} />;
+        return (
+          <Suppliers 
+            onBack={backToDashboard} 
+            tenantSchema={tenantSchema} 
+            stats={stats}
+            stock={stock}
+          />
+        );
       case 'financials':
-        return <Financials onBack={backToDashboard} stats={stats} productionHistory={productionHistory} tenantSchema={tenantSchema} />;
+        return (
+          <Financials 
+            onBack={backToDashboard} 
+            stats={stats} 
+            productionHistory={productionHistory} 
+            tenantSchema={tenantSchema} 
+            stock={stock}
+          />
+        );
       case 'reports':
-        return <Reports onBack={backToDashboard} productionHistory={productionHistory} stock={stock} stats={stats} tenantSchema={tenantSchema} />;
+        return (
+          <Reports 
+            onBack={backToDashboard} 
+            productionHistory={productionHistory} 
+            stock={stock} 
+            stats={stats} 
+            tenantSchema={tenantSchema} 
+          />
+        );
       case 'customers':
-        return <Customers onBack={backToDashboard} tenantSchema={tenantSchema} />;
+        return (
+          <Customers 
+            onBack={backToDashboard} 
+            tenantSchema={tenantSchema} 
+            stats={stats}
+          />
+        );
       case 'staff':
-        return <StaffManagement onBack={backToDashboard} tenantSchema={tenantSchema} />;
+        return (
+          <StaffManagement 
+            onBack={backToDashboard} 
+            tenantSchema={tenantSchema} 
+            stats={stats}
+          />
+        );
       case 'settings':
-        return <Settings onBack={backToDashboard} fetchLocalData={fetchLocalData} stock={stock} productionHistory={productionHistory} tenantSchema={tenantSchema} setTenantSchema={setTenantSchema} storage={storage} />;
+        return (
+          <Settings 
+            onBack={backToDashboard} 
+            fetchLocalData={fetchLocalData} 
+            stock={stock} 
+            productionHistory={productionHistory} 
+            tenantSchema={tenantSchema} 
+            setTenantSchema={setTenantSchema} 
+            storage={storage} 
+            setIsLoggedIn={setIsLoggedIn} 
+            stats={stats}
+          />
+        );
       default:
         return (
           <Dashboard 
@@ -299,6 +450,15 @@ const App = () => {
         );
     }
   };
+
+  // 🛡️ جدار حماية لمنع وميض الشاشة وضمان جلب حالة الجلسة المحفوظة أولاً قبل البناء
+  if (checkingAuth) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', fontFamily: 'Tajawal, sans-serif', backgroundColor: '#f4f7fe', color: '#6366f1', fontWeight: 'bold' }}>
+        🔄 جاري تهيئة محرك التوجيه الفولاذي الموحد...
+      </div>
+    );
+  }
 
   return (
     <div style={{ direction: 'rtl', minHeight: '100vh', backgroundColor: '#f4f7fe', fontFamily: 'Tajawal, sans-serif' }}>
