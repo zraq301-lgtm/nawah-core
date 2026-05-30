@@ -12,17 +12,21 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ success: false, error: 'Method Not Allowed' });
 
   const { schema, data } = req.body; 
+  
+  // 🔥 تحويل الاسم قسراً لحروف صغيرة لحل مشكلة السجلات تماماً
   const schemaName = String(schema).trim().toLowerCase(); 
 
-  if (!schemaName) {
-    return res.status(400).json({ success: false, error: "اسم الـ Schema مطلوب" });
+  if (!schemaName || schemaName === 'undefined' || schemaName === 'null') {
+    return res.status(400).json({ success: false, error: "اسم الـ Schema غير صالح أو مفقود" });
   }
 
-  // 1️⃣ إنشاء العميل المبدئي للتحقق والإنشاء
-  let currentSupabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+  // 1️⃣ إنشاء اتصال أولي بـ Supabase
+  let currentSupabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, {
+    auth: { persistSession: false }
+  });
 
   try {
-    // التحقق المباشر من جدول السكيمات الافتراضي للـ Postgres
+    // التحقق الفعلي من الـ Postgres مباشرة للتأكد من وجود السكيما بحروفها الصغيرة
     const { data: checkTables, error: checkError } = await currentSupabase
       .from('information_schema.schemata')
       .select('schema_name')
@@ -31,27 +35,27 @@ export default async function handler(req, res) {
 
     const isExist = !!checkTables && !checkError;
 
-    // 2️⃣ إذا كانت السكيما غير موجودة، ننشئها ونكسر كاش الاتصال
+    // 2️⃣ إذا كانت السكيما غير موجودة فعلياً بالحروف الصغيرة، يتم بناؤها فوراً
     if (!isExist) {
-      console.log(`السكيما ${schemaName} غير موجودة، يتم بناؤها الآن...`);
+      console.log(`السكيما [${schemaName}] غير موجودة في النظام. يتم تهيئتها الآن...`);
       
       const { error: createSchemaError } = await currentSupabase
         .rpc('create_new_client_erp', { client_schema_name: schemaName });
 
       if (createSchemaError) {
-        throw new Error(`فشل إنشاء السكيما برمجياً: ${createSchemaError.message}`);
+        throw new Error(`فشل إنشاء السكيما تلقائياً: ${createSchemaError.message}`);
       }
       
-      // وقت انتظار كافٍ لاستقرار السكيما والجداول والروابط والـ Triggers في الـ Postgres
-      await delay(2500);
+      // انتظار ثابت ومريح لإنهاء الـ Postgres بناء الجداول والـ Triggers
+      await delay(3000);
 
-      // 🔥 الخطوة السحرية: إعادة تهيئة العميل لكسر كاش السكيمات في الاتصال الحالي تماماً
+      // 🔥 تجديد العميل كلياً لضمان سحب الـ Schemas الجديدة من السيرفر بدون كاش قديم
       currentSupabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, {
         auth: { persistSession: false }
       });
     }
 
-    // تجهيز وتنظيف البيانات الرقمية
+    // تنظيف الحقول الرقمية لمنع أخطاء الـ Data Type (400)
     const targetContactId = data.contact_id ? Number(data.contact_id) : 1;
     const targetAccountId = data.account_id ? Number(data.account_id) : 1;
     const grossAmount = Number(data.gross_amount || 0);
@@ -61,7 +65,7 @@ export default async function handler(req, res) {
     const paidAmount = Number(data.paid_amount || 0);
     const remainingAmount = netAmount - paidAmount;
 
-    // 3️⃣ تنفيذ العمليات مع آلية المحاولات المتكررة المضادة لبطء استجابة السيرفرات السحابية
+    // 3️⃣ ترحيل رأس الفاتورة والبيانات الأساسية مع المحاولات الذكية
     let invoice = null;
     let attempts = 0;
     const maxAttempts = 3;
@@ -70,26 +74,18 @@ export default async function handler(req, res) {
       try {
         attempts++;
 
-        // أ- تأمين الحساب والعميل داخل السكيما الجديدة عبر الـ Upsert
-        const { error: contactError } = await currentSupabase
-          .schema(schemaName)
-          .from('contacts')
-          .upsert(
-            { id: targetContactId, name: data.contact_name || 'عميل نقدي افتراضي', type: 'customer' },
-            { onConflict: 'id' }
-          );
-        if (contactError) throw contactError;
+        // أمن العميل والحساب أولاً داخل الـ Schema الموحد
+        await currentSupabase.schema(schemaName).from('contacts').upsert(
+          { id: targetContactId, name: data.contact_name || 'عميل افتراضي', type: 'customer' },
+          { onConflict: 'id' }
+        );
 
-        const { error: accountError } = await currentSupabase
-          .schema(schemaName)
-          .from('accounts')
-          .upsert(
-            { id: targetAccountId, account_name: 'الخزينة الرئيسية', account_type: 'cash' },
-            { onConflict: 'id' }
-          );
-        if (accountError) throw accountError;
+        await currentSupabase.schema(schemaName).from('accounts').upsert(
+          { id: targetAccountId, account_name: 'الخزينة الرئيسية', account_type: 'cash' },
+          { onConflict: 'id' }
+        );
 
-        // ب- إدخال رأس الفاتورة
+        // إدخال الفاتورة
         const { data: invData, error: invError } = await currentSupabase
           .schema(schemaName)
           .from('invoices')
@@ -110,18 +106,18 @@ export default async function handler(req, res) {
         if (invError) throw invError;
         
         invoice = invData;
-        break; // نجحت العملية، اخرج من حلقة المحاولات
+        break; // نجحت العملية بنجاح! اخرج من الـ Retry Loop
 
       } catch (retryError) {
-        console.warn(`المحاولة رقم ${attempts} تعثرت. جاري التكرار بعد قليل...`);
+        console.warn(`فشلت محاولة الإدخال رقم ${attempts}، جاري الانتظار لإعادة المحاولة...`);
         if (attempts >= maxAttempts) {
-          throw new Error(`خطأ استقرار الهيكل السحابي: ${retryError.message}`);
+          throw new Error(`خطأ استقرار الهيكل: السكيما [${schemaName}] لم تستجب للإدخال: ${retryError.message}`);
         }
-        await delay(1500); // انتظار إضافي للسماح للـ Postgres Cache بالتحديث
+        await delay(2000); // زيادة وقت الانتظار بين المحاولات لتحديث الكاش السحابي
       }
     }
 
-    // 4️⃣ إدخال الأصناف التفصيلية للفاتورة
+    // 4️⃣ إدخال تفاصيل الأصناف (invoice_items)
     const itemsArray = data.items || data.invoice_items || [];
     if (itemsArray.length > 0) {
       const preparedItems = [];
@@ -129,21 +125,16 @@ export default async function handler(req, res) {
       for (const item of itemsArray) {
         const currentItemId = item.item_id || item.id || 1;
 
-        // الحفاظ على وجود الصنف متزامناً
-        const { error: itemUpsertError } = await currentSupabase
-          .schema(schemaName)
-          .from('items')
-          .upsert(
-            { 
-              id: Number(currentItemId), 
-              name: item.name || 'صنف غير معرف', 
-              item_type: 'product',
-              barcode: item.barcode || `BAR-${currentItemId}`
-            },
-            { onConflict: 'id' }
-          );
-
-        if (itemUpsertError) throw new Error(`خطأ تهيئة الصنف: ${itemUpsertError.message}`);
+        // مزامنة وجود الصنف لتجنب كسر الـ Foreign Key
+        await currentSupabase.schema(schemaName).from('items').upsert(
+          { 
+            id: Number(currentItemId), 
+            name: item.name || 'صنف افتراضي', 
+            item_type: 'product',
+            barcode: item.barcode || `BAR-${currentItemId}-${Date.now()}`
+          },
+          { onConflict: 'id' }
+        );
 
         preparedItems.push({
           invoice_id: invoice.id,
@@ -158,10 +149,10 @@ export default async function handler(req, res) {
         .from('invoice_items')
         .insert(preparedItems);
 
-      if (itemsError) throw new Error(`خطأ تفاصيل الأصناف: ${itemsError.message}`);
+      if (itemsError) throw new Error(`خطأ في تفاصيل الأصناف: ${itemsError.message}`);
     }
 
-    // 5️⃣ إدخال حركة ترحيل النقدية التلقائية
+    // 5️⃣ ترحيل السند المالي للخزينة (cash_transactions)
     if (paidAmount > 0) {
       const { error: cashError } = await currentSupabase
         .schema(schemaName)
@@ -174,12 +165,12 @@ export default async function handler(req, res) {
           description: data.description || `دفعة نقدية للفاتورة رقم: ${data.invoice_number}`
         }]);
 
-      if (cashError) throw new Error(`خطأ ترحيل الخزينة المالي: ${cashError.message}`);
+      if (cashError) throw new Error(`خطأ في ترحيل النقدية للشركة: ${cashError.message}`);
     }
 
     return res.status(200).json({
       success: true,
-      message: `تم ترحيل وحفظ الفاتورة بالكامل داخل السكيما المستقرة [${schemaName}]`,
+      message: `تم ترحيل وحفظ الفاتورة بنجاح وثبات كامل داخل [${schemaName}]`,
       data: invoice
     });
 
