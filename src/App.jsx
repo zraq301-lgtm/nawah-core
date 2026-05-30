@@ -3,6 +3,9 @@ import { Preferences } from '@capacitor/preferences';
 import { App as AppLauncher } from '@capacitor/app';
 import Swal from 'sweetalert2';
 
+// 🔥 استيراد ملف الخدمة المركزي الموحد بالروابط الخاصة بك
+import { apiService } from './services/apiService';
+
 // --- استيراد كافة المكونات الحقيقية للنظام من مجلد components ---
 import Dashboard from './components/Dashboard';
 import Inventory from './components/Inventory';
@@ -32,7 +35,7 @@ const App = () => {
     save: async (key, data) => {
       try {
         const stringifiedData = JSON.stringify(data);
-        // التخزين الأصلي والأكثر أماناً داخل SharedPreferences للأندرويد
+        // Tالتخزين الأصلي والأكثر أماناً داخل SharedPreferences للأندرويد
         await Preferences.set({ key, value: stringifiedData });
         // نسخة احتياطية إضافية للويب والمتصفح لحماية مزدوجة
         localStorage.setItem(key, stringifiedData); 
@@ -72,7 +75,7 @@ const App = () => {
   const groupItems = (items) => {
     const grouped = new Map();
     items.forEach(item => {
-      const name = (item.name || item.item || "صنف غير مسمى").trim();
+      const name = (item.name || item.item_name || item.item || "صنف غير مسمى").trim();
       const balance = parseFloat(item.balance || item.quantity || 0);
       const price = parseFloat(item.price || 0);
 
@@ -98,18 +101,48 @@ const App = () => {
     });
   };
 
+  // --- دالة المزامنة السحابية الذكية (سحب البيانات وتحديث الواجهة) ---
+  const syncCloudData = async () => {
+    try {
+      // 🚀 سحب البيانات السحابية الحية لجدول الـ stock باستخدام الرابط المخصص الموحد
+      const cloudResult = await apiService.getData('stock');
+      if (cloudResult && cloudResult.success && cloudResult.data) {
+        const cloudStock = cloudResult.data.map(item => ({
+          ...item,
+          name: item.item_name || item.name,
+          balance: parseFloat(item.quantity || item.balance || 0),
+          price: parseFloat(item.price || 0)
+        }));
+        const finalizedStock = groupItems(cloudStock);
+        setStock(finalizedStock);
+        await storage.save('stock', finalizedStock);
+      }
+    } catch (apiErr) {
+      console.warn("⚠️ لم يتم تحديث السيرفر السحابي، جاري استخدام القاعدة المحلية الاحتياطية:", apiErr.message);
+    }
+  };
+
   // --- مزامنة وإدارة البيانات السريعة وسحب رقم الشركة ---
   const fetchLocalData = useCallback(async () => {
     setIsSyncing(true);
+    
+    // 🔥 جلب رقم السكيما المخزن محلياً باسم 'tenant_schema' وتحديث الـ State
+    const savedSchema = await storage.load('tenant_schema');
+    if (savedSchema) {
+      setTenantSchema(savedSchema);
+    }
+
     const localStock = await storage.load('stock');
     const localHistory = await storage.load('productionHistory');
     
-    // 🔥 جلب رقم السكيما المخزن محلياً باسم 'tenant_schema'
-    const savedSchema = await storage.load('tenant_schema');
-    if (savedSchema) setTenantSchema(savedSchema);
-    
     if (localStock) setStock(localStock);
     if (localHistory) setProductionHistory(localHistory);
+
+    // 🚀 بدء المزامنة الخلفية للسيرفر لضمان جلب آخر تعديلات
+    if (savedSchema) {
+      await syncCloudData();
+    }
+
     setIsSyncing(false);
   }, []);
 
@@ -119,14 +152,26 @@ const App = () => {
     setProductionHistory(updatedHistory);
     await storage.save('productionHistory', updatedHistory);
     await storage.save('stock', stock);
+
+    try {
+      // 🚀 ترحيل سجل الإنتاج آلياً لسيرفر الفيرسل المركزي بجدول المزامنة الموحد
+      await apiService.createData('production_history', {
+        production_id: newProduction.id,
+        total_actual_cost: parseFloat(newProduction.totalActualCost || 0),
+        details: JSON.stringify(newProduction)
+      });
+    } catch (err) {
+      console.error("فشل المزامنة اللحظية لعملية الإنتاج:", err.message);
+    }
+
     Swal.fire('تم الحفظ', 'تم تسجيل الإنتاج وتحديث المخزن بنجاح', 'success');
   };
 
-  // --- دالة حفظ مدخلات المخزن الجديدة ---
+  // --- دالة حفظ مدخلات المخزن الجديدة وترحيلها للقاعدة السحابية ---
   const handleSaveInventory = async (newItem) => {
     const formattedItem = {
       ...newItem,
-      name: newItem.name || newItem.item,
+      name: newItem.name || newItem.item_name || newItem.item,
       balance: parseFloat(newItem.balance || newItem.quantity || 0),
       price: parseFloat(newItem.price || 0)
     };
@@ -134,6 +179,21 @@ const App = () => {
     const updatedStock = groupItems([...stock, formattedItem]);
     setStock(updatedStock);
     await storage.save('stock', updatedStock);
+
+    try {
+      // 🚀 ترحيل وحفظ الصنف الجديد مباشرة في جدول stock بقاعدة بيانات نيون السحابية
+      await apiService.createData('stock', {
+        item_name: formattedItem.name,
+        quantity: formattedItem.balance,
+        price: formattedItem.price,
+        barcode: newItem.barcode || ''
+      });
+      
+      // إعادة تحديث الواجهة للتأكد من المزامنة
+      await syncCloudData();
+    } catch (err) {
+      console.error("تم الحفظ محلياً وتأخر ترحيل السيرفر:", err.message);
+    }
   };
 
   // --- دالة الحذف اللحظية الموحدة ---
