@@ -17,7 +17,7 @@ const Suppliers = ({ onBack, waitingList = [], onUpdateWaitingList }) => {
     queryFn: () => apiService.getData('contacts'),
   });
 
-  // استخراج مصفوفة الموردين فقط من البيانات المفلترة بالباك إند التابع للـ apiService
+  // استخراج مصفوفة الموردين فقط من البيانات المفلترة بالباك إند التابع لـ apiService
   const suppliers = contactsData?.categorized?.suppliers || [];
 
   // 2️⃣ 🏗️ محرك الطفرة (Mutation) لحفظ مورد جديد مباشرة في السيرفر السحابي
@@ -35,7 +35,7 @@ const Suppliers = ({ onBack, waitingList = [], onUpdateWaitingList }) => {
     }
   });
 
-  // 3️⃣ 💸 محرك الطفرة لتحديث المديونية والسداد سحابياً
+  // 3️⃣ 💸 محرك الطفرة لتتويج وتحديث المديونية والسداد سحابياً
   const payDebtMutation = useMutation({
     mutationFn: (updatedRow) => apiService.createData('contacts', updatedRow),
     onSuccess: () => {
@@ -55,7 +55,7 @@ const Suppliers = ({ onBack, waitingList = [], onUpdateWaitingList }) => {
 
     // تجهيز البنية الدقيقة المتوافقة مع جدول contacts الخاص بقاعدة البيانات
     const supplierPayload = {
-      contact_id: Date.now(), // معرف فريد للهاتف والباك إند
+      contact_id: Date.now(), // معرف فريد أصيل للهاتف والباك إند
       name: newSupplier.name.trim(),
       phone: newSupplier.phone.trim(),
       address: newSupplier.material, // تخزين نوع المادة في حقل العنوان أو تهيئته للباك إند
@@ -67,7 +67,15 @@ const Suppliers = ({ onBack, waitingList = [], onUpdateWaitingList }) => {
   };
 
   const handlePayDebt = (supplier) => {
-    const amount = parseFloat(payAmount[supplier.id]);
+    // 🛡️ تحديد المعرف المتوفر بأمان لمنع الـ undefined
+    const targetId = supplier.id || supplier.contact_id;
+    
+    if (!targetId) {
+      Swal.fire('خطأ برمي', 'لم يتم العثور على معرف صالح لهذا المورد', 'error');
+      return;
+    }
+
+    const amount = parseFloat(payAmount[targetId]);
     if (!amount || amount <= 0) { 
       Swal.fire('تنبيه', 'يرجى إدخال مبلغ صحيح للسداد', 'warning'); 
       return; 
@@ -86,7 +94,7 @@ const Suppliers = ({ onBack, waitingList = [], onUpdateWaitingList }) => {
     };
 
     payDebtMutation.mutate(updatedPayload);
-    setPayAmount(prev => ({ ...prev, [supplier.id]: '' }));
+    setPayAmount(prev => ({ ...prev, [targetId]: '' }));
     Swal.fire('تم السداد', `تم خصم ${amount} ج.م من حساب المورد ${supplier.name}`, 'success');
   };
 
@@ -144,29 +152,32 @@ const Suppliers = ({ onBack, waitingList = [], onUpdateWaitingList }) => {
           <AlertCircle size={32} style={{ marginBottom: '8px', opacity: 0.5 }} />
           <p style={{ margin: 0 }}>لا يوجد موردين مسجلين في بيئة عملك حالياً</p>
         </div>
-      ) : suppliers.map(s => (
-        <div key={s.id || s.contact_id} className="glass-card" style={{ marginBottom: '10px', padding: '15px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '8px' }}>
-            <div>
-              <div style={{ fontWeight: 'bold', fontSize: '1rem', color: '#1e293b' }}>{s.name}</div>
-              <div style={{ fontSize: '0.8rem', color: '#64748b' }}>{s.address || 'مورد عام'} | {s.phone}</div>
+      ) : suppliers.map(s => {
+        const currentSupplierId = s.id || s.contact_id;
+        return (
+          <div key={currentSupplierId} className="glass-card" style={{ marginBottom: '10px', padding: '15px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '8px' }}>
+              <div>
+                <div style={{ fontWeight: 'bold', fontSize: '1rem', color: '#1e293b' }}>{s.name}</div>
+                <div style={{ fontSize: '0.8rem', color: '#64748b' }}>{s.address || 'مورد عام'} | {s.phone}</div>
+              </div>
+              {(parseFloat(s.debt) || 0) > 0 && (
+                <span className="status-badge" style={{ background: '#fee2e2', color: '#ef4444', padding: '4px 8px', borderRadius: '8px', fontSize: '0.8rem' }}>
+                  مدين: {(parseFloat(s.debt) || 0).toLocaleString()} ج.م
+                </span>
+              )}
             </div>
             {(parseFloat(s.debt) || 0) > 0 && (
-              <span className="status-badge" style={{ background: '#fee2e2', color: '#ef4444', padding: '4px 8px', borderRadius: '8px', fontSize: '0.8rem' }}>
-                مدين: {(parseFloat(s.debt) || 0).toLocaleString()} ج.م
-              </span>
+              <div style={{ display: 'flex', gap: '8px', marginTop: '10px' }}>
+                <input type="number" className="glass-input" placeholder="مبلغ السداد" value={payAmount[currentSupplierId] || ''} onChange={(e) => setPayAmount(prev => ({ ...prev, [currentSupplierId]: e.target.value }))} style={{ marginBottom: 0, flex: 1 }} />
+                <button onClick={() => handlePayDebt(s)} style={{ padding: '12px 16px', borderRadius: '14px', border: 'none', backgroundColor: '#2ecc71', color: 'white', fontWeight: 'bold', cursor: 'pointer', whiteSpace: 'nowrap' }} disabled={payDebtMutation.isPending}>
+                  سداد
+                </button>
+              </div>
             )}
           </div>
-          {(parseFloat(s.debt) || 0) > 0 && (
-            <div style={{ display: 'flex', gap: '8px', marginTop: '10px' }}>
-              <input type="number" className="glass-input" placeholder="مبلغ السداد" value={payAmount[s.id] || ''} onChange={(e) => setPayAmount(prev => ({ ...prev, [s.id]: e.target.value }))} style={{ marginBottom: 0, flex: 1 }} />
-              <button onClick={() => handlePayDebt(s)} style={{ padding: '12px 16px', borderRadius: '14px', border: 'none', backgroundColor: '#2ecc71', color: 'white', fontWeight: 'bold', cursor: 'pointer', whiteSpace: 'nowrap' }} disabled={payDebtMutation.isPending}>
-                سداد
-              </button>
-            </div>
-          )}
-        </div>
-      ))}
+        );
+      })}
 
       {waitingList && waitingList.length > 0 && (
         <>
