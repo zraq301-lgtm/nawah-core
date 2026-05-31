@@ -53,14 +53,15 @@ const Suppliers = ({ onBack, waitingList = [], onUpdateWaitingList }) => {
       return; 
     }
 
-    // تجهيز البنية الدقيقة المتوافقة مع جدول contacts الخاص بقاعدة البيانات
+    // تجهيز البنية الدقيقة المتوافقة مع جدول contacts والـ Schema الأصيلة لـ نيون واستهداف الـ Table صراحة
     const supplierPayload = {
+      table: 'contacts', // تأكيد اسم الجدول للباك إند لمنع الذهاب لمسار الفواتير الافتراضي
       contact_id: Date.now(), // معرف فريد أصيل للهاتف والباك إند
       name: newSupplier.name.trim(),
       phone: newSupplier.phone.trim(),
-      address: newSupplier.material, // تخزين نوع المادة في حقل العنوان أو تهيئته للباك إند
+      address: newSupplier.material, // تخزين نوع المادة في حقل العنوان المتاح بالسكيما
       type: 'supplier', // الـ Flag الرئيسي ليصنفه الباك إند كمورد
-      debt: parseFloat(newSupplier.debt) || 0
+      current_balance: parseFloat(newSupplier.debt) || 0 // مواءمة الحقل ليتطابق مع سكيما نيون (current_balance)
     };
 
     addSupplierMutation.mutate(supplierPayload);
@@ -81,16 +82,18 @@ const Suppliers = ({ onBack, waitingList = [], onUpdateWaitingList }) => {
       return; 
     }
     
-    const currentDebt = parseFloat(supplier.debt) || 0;
+    // استخدام حقل current_balance الأصيل القادم من السيرفر بالتوازي مع حقل المديونية القديم كحزام أمان
+    const currentDebt = parseFloat(supplier.current_balance !== undefined ? supplier.current_balance : supplier.debt) || 0;
     if (amount > currentDebt) {
       Swal.fire('تنبيه', 'المبلغ المدخل أكبر من مديونية المورد الحالية', 'warning');
       return;
     }
 
-    // احتساب المديونية الجديدة لإرسال تحديث الحفظ (Mutate) للسيرفر
+    // احتساب المديونية الجديدة لإرسال تحديث الحفظ (Mutate) للسيرفر ومطابقته للسكيما
     const updatedPayload = {
+      table: 'contacts', // توجيه مباشر وحاسم لجدول جهات التعامل
       ...supplier,
-      debt: currentDebt - amount
+      current_balance: currentDebt - amount
     };
 
     payDebtMutation.mutate(updatedPayload);
@@ -154,6 +157,9 @@ const Suppliers = ({ onBack, waitingList = [], onUpdateWaitingList }) => {
         </div>
       ) : suppliers.map(s => {
         const currentSupplierId = s.id || s.contact_id;
+        // قراءة رصيد المديونية بشكل مرن يتوافق مع كلا الحقلين المتاحين بالسحابة
+        const displayDebt = parseFloat(s.current_balance !== undefined ? s.current_balance : s.debt) || 0;
+        
         return (
           <div key={currentSupplierId} className="glass-card" style={{ marginBottom: '10px', padding: '15px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '8px' }}>
@@ -161,13 +167,13 @@ const Suppliers = ({ onBack, waitingList = [], onUpdateWaitingList }) => {
                 <div style={{ fontWeight: 'bold', fontSize: '1rem', color: '#1e293b' }}>{s.name}</div>
                 <div style={{ fontSize: '0.8rem', color: '#64748b' }}>{s.address || 'مورد عام'} | {s.phone}</div>
               </div>
-              {(parseFloat(s.debt) || 0) > 0 && (
+              {displayDebt > 0 && (
                 <span className="status-badge" style={{ background: '#fee2e2', color: '#ef4444', padding: '4px 8px', borderRadius: '8px', fontSize: '0.8rem' }}>
-                  مدين: {(parseFloat(s.debt) || 0).toLocaleString()} ج.م
+                  مدين: {displayDebt.toLocaleString()} ج.م
                 </span>
               )}
             </div>
-            {(parseFloat(s.debt) || 0) > 0 && (
+            {displayDebt > 0 && (
               <div style={{ display: 'flex', gap: '8px', marginTop: '10px' }}>
                 <input type="number" className="glass-input" placeholder="مبلغ السداد" value={payAmount[currentSupplierId] || ''} onChange={(e) => setPayAmount(prev => ({ ...prev, [currentSupplierId]: e.target.value }))} style={{ marginBottom: 0, flex: 1 }} />
                 <button onClick={() => handlePayDebt(s)} style={{ padding: '12px 16px', borderRadius: '14px', border: 'none', backgroundColor: '#2ecc71', color: 'white', fontWeight: 'bold', cursor: 'pointer', whiteSpace: 'nowrap' }} disabled={payDebtMutation.isPending}>
