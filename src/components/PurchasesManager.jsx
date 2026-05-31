@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import { Package, Truck, Calendar, Hash, DollarSign, ArrowRight, Save, ShoppingCart, Bell, Table, AlertTriangle, User } from 'lucide-react';
 import DataGrid from './DataGrid';
 
-// 🔥 استيراد ملف الخدمة المركزي الموحد بالروابط والمسارات الخاصة بك
+// 🚀 استيراد أدوات React Query وملف الخدمة المركزي الموحد الخاص بك
+import { useQuery } from '@tanstack/react-query';
 import { apiService } from '../services/apiService';
 
 const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigger, inventory = [], tenantSchema }) => {
@@ -20,7 +21,18 @@ const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigg
     item: '', currentStock: 0, daysLeft: 0, neededQty: '', supplier: '' 
   });
 
-  const lowStockItems = stock.filter(s => s.balance <= 20);
+  // 📥 الدالة السحرية: استدعاء جلب المخزن سحابياً عبر نظام React Query الجديد
+  const { data: cloudStock = [], isLoading } = useQuery({
+    queryKey: ['stock'],
+    queryFn: () => apiService.getData('stock'),
+    staleTime: 1000 * 60 * 2, // الكاش يظل طازجاً لمدة دقيقتين لتقليل استهلاك الـ API
+  });
+
+  // 🔄 دمج مصفوفة المخزن الحية من السحاب، وإذا كانت فارغة نعود للمصفوفة المحلية (Fallback)
+  const activeStock = cloudStock.length > 0 ? cloudStock : stock;
+
+  // حساب النواقص والأصناف التي وصلت لحد إعادة الطلب بناءً على المخزن الفعلي النشط
+  const lowStockItems = activeStock.filter(s => s.balance <= 20);
 
   // 🛡️ ميكانيزم استخراج وتحويل اسم الشركة لحروف صغيرة إجبارياً لمنع ارتداد الكاش
   const getCleanTenantSchema = () => {
@@ -34,7 +46,6 @@ const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigg
       return 'tenant_1780023145536'; 
     }
 
-    // إجبار الحروف الصغيرة (Lowercase) لمنع تعارض الـ Postgres
     const clean = rawSchema.startsWith('tenant_') ? rawSchema : `tenant_${rawSchema}`;
     return clean.trim().toLowerCase();
   };
@@ -45,7 +56,7 @@ const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigg
       setFormData({ ...formData, item: '', unit: '', price: '' });
       return;
     }
-    const selected = stock.find(s => s.name === itemName);
+    const selected = activeStock.find(s => s.name === itemName);
     if (selected) {
       setFormData({
         ...formData,
@@ -58,7 +69,7 @@ const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigg
   };
 
   const handleItemSelectForOrder = (itemName) => {
-    const itemInStock = stock.find(s => s.name === itemName);
+    const itemInStock = activeStock.find(s => s.name === itemName);
     const balance = itemInStock ? itemInStock.balance : 0;
     setOrderRequest({
       ...orderRequest,
@@ -79,7 +90,7 @@ const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigg
     setIsSubmitting(true);
 
     try {
-      // 🚀 استدعاء رابط الحفظ والترحيل (POST) من خلال ملف الخدمة الموحد لـ api/erp/mutate
+      // 🚀 استدعاء رابط الحفظ والترحيل (POST) لجدول طلبات الاحتياج
       const response = await apiService.createData('purchase_request', {
         invoice_number: `REQ-${Date.now().toString().slice(-6)}`,
         invoice_type: 'purchase_request',
@@ -119,7 +130,7 @@ const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigg
     setActiveView('menu');
   };
 
-  // --- 🟢 دالة حفظ الفاتورة بالهيكل القياسي لـ Supabase (المدخلات الموحدة) ---
+  // --- 🟢 دالة حفظ الفاتورة بالهيكل القياسي لـ الباك إند (المدخلات الموحدة) ---
   const handleSave = async (e) => {
     if (e) e.preventDefault();
     
@@ -136,7 +147,7 @@ const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigg
     const totalAmount = parsedQty * parsedPrice;
 
     try {
-      // 🚀 استدعاء رابط الحفظ والترحيل (POST) من خلال ملف الخدمة الموحد لـ api/erp/mutate لجدول المشتريات
+      // 🚀 استدعاء رابط الحفظ والترحيل (POST) لجدول المشتريات
       const response = await apiService.createData('purchase', {
         invoice_number: batchId,
         invoice_type: 'purchase',
@@ -168,7 +179,7 @@ const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigg
       if (typeof onPurchaseComplete === 'function') {
         onPurchaseComplete({
           ...formData,
-          name: formData.item, // توحيد الحقل مع الهيكل البرمجي للأصناف
+          name: formData.item, 
           balance: parsedQty,
           quantity: parsedQty,
           price: parsedPrice,
@@ -203,6 +214,13 @@ const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigg
   return (
     <div style={{ padding: '15px', direction: 'rtl', fontFamily: "'Tajawal', sans-serif", minHeight: '100vh', position: 'relative' }}>
       
+      {/* مؤشر تحميل زجاجي صغير عند جلب البيانات النشطة من السحاب */}
+      {isLoading && (
+        <div style={{ position: 'absolute', top: '10px', left: '10px', background: 'rgba(255,255,255,0.8)', padding: '4px 10px', borderRadius: '20px', fontSize: '0.75rem', color: '#1e5631', zIndex: 10, border: '1px solid rgba(30,86,49,0.2)' }}>
+          🔄 جاري تحديث المخزن...
+        </div>
+      )}
+
       {lowStockItems.length > 0 && (
         <div style={{ background: '#fee2e2', border: '1px solid #ef4444', padding: '10px', borderRadius: '10px', marginBottom: '15px', display: 'flex', alignItems: 'center', gap: '10px' }}>
           <AlertTriangle color="#ef4444" size={20} />
@@ -265,7 +283,7 @@ const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigg
             <label className="form-label" style={{ display: 'block', marginBottom: '5px', fontSize: '0.9rem', fontWeight: 'bold' }}>الصنف المطلوب</label>
             <select className="glass-input" required value={orderRequest.item} onChange={e => handleItemSelectForOrder(e.target.value)} style={{ marginBottom: '12px', width: '100%', padding: '10px', borderRadius: '10px', border: '1px solid #cbd5e1' }}>
               <option value="">اختر صنف من المخزن...</option>
-              {stock.map(s => <option key={s.id} value={s.name}>{s.name} (المتاح: {s.balance})</option>)}
+              {activeStock.map(s => <option key={s.id} value={s.name}>{s.name} (المتاح: {s.balance})</option>)}
             </select>
 
             <label className="form-label" style={{ display: 'block', marginBottom: '5px', fontSize: '0.9rem', fontWeight: 'bold' }}><User size={16} style={{ display: 'inline', marginLeft: '3px' }} /> اسم المورد</label>
@@ -301,7 +319,7 @@ const PurchasesManager = ({ onPurchaseComplete, onBack, stock = [], onOrderTrigg
             {!isNewItem ? (
               <select className="glass-input" required value={formData.item} onChange={e => handleExistingItemSelect(e.target.value)} style={{ marginBottom: '10px', width: '100%', padding: '10px', borderRadius: '10px', border: '1px solid #cbd5e1' }}>
                 <option value="">اختر من المخزن...</option>
-                {stock.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                {activeStock.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
                 <option value="NEW_ITEM" style={{fontWeight: 'bold', color: '#6366f1'}}>+ إضافة صنف جديد للمخازن</option>
               </select>
             ) : (
