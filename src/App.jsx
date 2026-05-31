@@ -4,6 +4,9 @@ import { App as AppLauncher } from '@capacitor/app';
 import { LocalNotifications } from '@capacitor/local-notifications'; // 🔔 محرك إشعارات الأندرويد الفولاذي
 import Swal from 'sweetalert2';
 
+// 🚀 استيراد أدوات مكتبة React Query
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+
 // 🔥 استيراد ملف الخدمة المركزي الموحد بالروابط الخاصة بك
 import { apiService } from './services/apiService';
 
@@ -25,7 +28,17 @@ import Customers from './components/Customers';
 import StaffManagement from './components/StaffManagement';
 import Settings from './components/Settings';
 
-const App = () => {
+// ⚙️ إنشاء كائن الـ Query Client المركزي وإعداده لبيئة الهاتف
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 1000 * 60 * 5, // البيانات تعتبر طازجة لمدة 5 دقائق داخل الكاش
+      refetchOnWindowFocus: false, // منع إعادة الجلب عند فتح وغلق الشاشات في الأندرويد لثبات الأداء
+    },
+  },
+});
+
+const AppContent = () => {
   const [activePage, setActivePage] = useState('dashboard');
   const [stock, setStock] = useState([]);
   const [productionHistory, setProductionHistory] = useState([]);
@@ -552,5 +565,14 @@ const NavButton = ({ active, icon, label, onClick, color }) => (
     <span style={{ fontSize: '11px', fontWeight: active ? 'bold' : '500' }}>{label}</span>
   </button>
 );
+
+// 📦 المكون المصدّر الرئيسي المحمي بمزود تيار البيانات المركزي لـ React Query
+const App = () => {
+  return (
+    <QueryClientProvider client={queryClient}>
+      <AppContent />
+    </QueryClientProvider>
+  );
+};
 
 export default App;
