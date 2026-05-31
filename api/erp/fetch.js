@@ -16,7 +16,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ success: false, error: 'الطريقة غير مسموح بها، استخدم GET' });
   }
 
-  // المعيار الموحد: جلب اسم السكيما والجدول بالإنجليزية مباشرة من الـ Query Params
+  // المعيار الموحد: جلب اسم السكيما والجدول مباشرة من الـ Query Params
   const { schema, table } = req.query;
 
   if (!schema || !table) {
@@ -26,7 +26,7 @@ export default async function handler(req, res) {
     });
   }
 
-  // 🔌 تفكيك الرابط بشكل آمن لحل تحذير Node.js DEP0169 بشكل جذري ومنع الثغرات
+  // 🔌 تفكيك الرابط بشكل آمن لحل تحذير Node.js ومنع الثغرات
   let sql;
   try {
     const parsedUrl = new URL(process.env.DATABASE_URL);
@@ -39,21 +39,23 @@ export default async function handler(req, res) {
       ssl: 'require'
     });
   } catch (urlErr) {
-    // كود احتياطي (Fallback) في حال واجه المحرك صعوبة في تفكيك الرابط لتأمين استمرار العمل
     sql = postgres(process.env.DATABASE_URL, { ssl: 'require' });
   }
 
   try {
-    // 🛡️ تأمين وحماية أسماء السكيما والجداول لمنع ثغرات الـ SQL Injection
-    const safeSchema = schema.trim().toLowerCase();
-    const safeTable = table.trim().toLowerCase();
+    // 🛡️ تنظيف صارم لأسماء السكيما والجداول لمنع الفراغات أو الأحرف الغريبة القادمة من الهاتف
+    const safeSchema = String(schema).trim().toLowerCase().replace(/[^a-z0-9_]/g, '');
+    const safeTable = String(table).trim().toLowerCase().replace(/[^a-z0-9_]/g, '');
 
-    // التحقق من الهيكل الاسمي لمنع إرسال رموز خبيثة
-    if (!/^[a-z0-9_]+$/.test(safeSchema) || !/^[a-z0-9_]+$/.test(safeTable)) {
-      return res.status(400).json({ success: false, error: 'أسماء الجداول أو بيئة العمل تحتوي على رموز غير صالحة' });
+    // التحقق الفولاذي المحدث بعد التنظيف لضمان عدم تمرير قيم فارغة أو خبيثة
+    if (!safeSchema || !safeTable) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'أسماء الجداول أو بيئة العمل غير صالحة بعد التنظيف والتأمين' 
+      });
     }
 
-    // 🚀 الاستعلام الديناميكي من نيون باستخدام الـ Identifiers الآمنة لـ postgres.js
+    // 🚀 الاستعلام الديناميكي الآمن باستخدام الـ Identifiers لـ postgres.js
     const dbResult = await sql`
       SELECT * FROM ${sql(safeSchema)}.${sql(safeTable)}
       ORDER BY id DESC
@@ -61,18 +63,16 @@ export default async function handler(req, res) {
 
     // 🧠 المحرك الذكي للتصنيف: إذا كان الجدول المطلوب هو جدول الجهات والموردين الموحد
     if (safeTable === 'contacts') {
-      // فرز وتجميع كل فئة وتخصص بناءً على حقل الـ type القياسي لنظام الـ ERP
       const customers = dbResult.filter(item => item.type === 'customer' || item.type === 'general');
       const suppliers = dbResult.filter(item => item.type === 'supplier');
       const employees = dbResult.filter(item => item.type === 'employee');
 
-      // الرد الموحد والمصنف مسبقاً لتسهيل قراءته في واجهات App.jsx مباشرة
       return res.status(200).json({ 
         success: true, 
         table: safeTable,
         schema: safeSchema,
-        data: dbResult, // المصفوفة الكاملة الخام كما هي
-        categorized: {  // البيانات مفرزة ومصنفة حسب التخصص الحقيقي لها
+        data: dbResult, 
+        categorized: {  
           customers: customers,
           suppliers: suppliers,
           employees: employees
@@ -89,13 +89,12 @@ export default async function handler(req, res) {
     });
 
   } catch (error) {
-    console.error(`❌ خطأ الباك إند الموحد أثناء جلب البيانات من جدول ${table}:`, error.message);
+    console.error(`❌ خطأ الباك إند أثناء جلب البيانات من جدول ${table}:`, error.message);
     
-    // التعامل الذكي مع خطأ عدم وجود الجدول في السكيما لتنبيه الواجهة برسمية
     if (error.message.includes('does not exist')) {
       return res.status(404).json({
         success: false,
-        error: `الجدول (${table}) غير موجود حالياً في بيئة عمل المؤسسة المعزولة`
+        error: `الجدول (${table}) غير موجود حالياً في بيئة العمل`
       });
     }
 
@@ -104,7 +103,6 @@ export default async function handler(req, res) {
       error: "فشل استدعاء البيانات من السيرفر السحابي، يرجى إعادة المحاولة" 
     });
   } finally {
-    // حماية حمولة الذاكرة المفتوحة في السيرفر
     if (sql) await sql.end({ timeout: 0.5 });
   }
 }
