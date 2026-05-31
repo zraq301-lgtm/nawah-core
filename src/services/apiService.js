@@ -8,7 +8,14 @@ import { Preferences } from '@capacitor/preferences';
 const getActiveSchema = async () => {
   try {
     const { value } = await Preferences.get({ key: 'tenant_schema' });
-    if (value) return JSON.parse(value);
+    if (value) {
+      // التحقق مما إذا كانت القيمة مخزنة كـ JSON string أو نص عادي
+      try {
+        return JSON.parse(value);
+      } catch {
+        return value;
+      }
+    }
   } catch (e) {
     console.warn("فشل نظام الشيرد بريفرنس، الانتقال للحل الاحتياطي", e);
   }
@@ -28,7 +35,7 @@ export const apiService = {
       throw new Error("لم يتم العثور على بيئة عمل نشطة، يرجى تسجيل الدخول أولاً");
     }
 
-    // 🔥 الرابط الخاص بك بالكامل بعد دمج السكيما والجدول ديناميكياً
+    // 🔥 الرابط الخاص بك بالكامل بعد دمج السكيما والجدول ديناميكياً كما هو
     const fullUrl = `https://project-902ma.vercel.app/api/erp/fetch?schema=${encodeURIComponent(activeSchema)}&table=${encodeURIComponent(tableName)}`;
 
     const options = {
@@ -43,7 +50,8 @@ export const apiService = {
       throw new Error(resData.error || `خطأ في جلب البيانات بترميز (${response.status})`);
     }
 
-    return resData; // يعيد { success: true, data: [...] }
+    // يعيد المصفوفة الداخلية مباشرة لتسهيل عمل React Query في الصفحات
+    return resData.data || []; 
   },
 
   /**
@@ -58,7 +66,7 @@ export const apiService = {
       throw new Error("لم يتم العثور على بيئة عمل نشطة، يرجى تسجيل الدخول أولاً");
     }
 
-    // 🔥 الرابط الخاص بك بالكامل لإرسال وحفظ البيانات
+    // 🔥 الرابط الخاص بك بالكامل لإرسال وحفظ البيانات كما هو
     const fullUrl = `https://project-902ma.vercel.app/api/erp/mutate`;
 
     const options = {
