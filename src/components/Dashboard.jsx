@@ -16,7 +16,7 @@ const Dashboard = ({
 }) => {
   const [isAiLoading, setIsAiLoading] = useState(false);
 
-  // تم تعديل المعرفات (id) لتتطابق تماماً مع نظام توجيه الصفحات الفعلي في App.jsx لتعمل فوراً باللمس
+  // تم تثبيت المعرفات (id) لتتطابق تماماً مع نظام توجيه الصفحات الفعلي في App.jsx لتعمل فوراً باللمس
   const sections = [
     { id: 'purchases', title: 'المشتريات', icon: <ShoppingCart size={28}/>, color: '#e67e22' },
     { id: 'sales', title: 'المبيعات', icon: <Tag size={28}/>, color: '#2ecc71' },
@@ -31,14 +31,18 @@ const Dashboard = ({
     { id: 'staff', title: 'العمالة', icon: <UserCheck size={28}/>, color: '#0ea5e9' },
   ];
 
-  // معالجة بيانات الرسم البياني محلياً بدقة
+  // معالجة بيانات الرسم البياني محلياً بدقة مع المزامنة مع الأب
   const chartData = useMemo(() => {
     if (!productionData || !Array.isArray(productionData) || productionData.length === 0) return [];
     
-    const parsedData = productionData.map(item => ({
-      name: item.date ? item.date.split('-').slice(1).join('/') : '', 
-      quantity: parseFloat(item.products?.reduce((sum, p) => sum + (parseFloat(p.quantity) || 0), 0) || 0)
-    })).slice(-5); // جلب آخر 5 إدخالات لمنع ازدحام الشاشة على الهاتف
+    const parsedData = productionData.map(item => {
+      // التعامل المرن مع هياكل البيانات القادمة من السيرفر أو التخزين المحلي
+      const details = typeof item.details === 'string' ? JSON.parse(item.details) : (item.details || item);
+      return {
+        name: item.created_at ? new Date(item.created_at).toLocaleDateString('ar-EG', {month: 'numeric', day: 'numeric'}) : (details.date ? details.date.split('-').slice(1).join('/') : ''), 
+        quantity: parseFloat(details.products?.reduce((sum, p) => sum + (parseFloat(p.quantity) || 0), 0) || details.quantity || 0)
+      };
+    }).slice(-5).reverse(); // جلب آخر 5 إدخالات مرتبة ترتيباً تصاعدياً زمنياً للعرض
 
     const maxQty = Math.max(...parsedData.map(d => d.quantity), 1);
     
@@ -50,14 +54,17 @@ const Dashboard = ({
 
   const generateTodayReport = () => {
     const today = new Date().toISOString().split('T')[0];
-    const todayProd = productionData.filter(p => p.date === today);
-    const totalCost = todayProd.reduce((sum, p) => sum + parseFloat(p.totalActualCost || 0), 0);
+    const todayProd = productionData.filter(p => {
+      const details = typeof p.details === 'string' ? JSON.parse(p.details) : (p.details || p);
+      return p.created_at?.startsWith(today) || details.date === today;
+    });
+    const totalCost = todayProd.reduce((sum, p) => sum + (parseFloat(p.total_actual_cost || p.totalActualCost || 0)), 0);
     const lowStockCount = stock.filter(i => parseFloat(i.balance || i.quantity || 0) < 5).length;
 
     Swal.fire({
-      title: '📊 تقرير حالة المصنع',
+      title: '📊 تقرير حالة المصنع الفوري',
       html: `<div style="text-align: right; font-family: 'Tajawal', sans-serif; line-height: 1.8;">
-          <p>📅 إنتاج اليوم: <b>${todayProd.length} وردية</b></p>
+          <p>📅 إنتاج اليوم: <b>${todayProd.length} حركة تشغيل</b></p>
           <p>💰 إجمالي تكلفة اليوم: <b style="color: #e67e22">${totalCost.toFixed(2)} ج.م</b></p>
           <p>📦 أصناف المخزن: <b>${stock.length} صنف</b></p>
           <p>⚠️ أصناف أوشكت على النفاذ: <b style="color: #ef4444">${lowStockCount}</b></p>
@@ -109,18 +116,18 @@ const Dashboard = ({
         </button>
       </div>
 
-      {/* كروت الإحصائيات الحيوية */}
+      {/* كروت الإحصائيات الحيوية المزامنة مع حسابات الأب */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px', marginBottom: '20px' }}>
         {[
           { label: 'الإيرادات', value: stats.totalIncome || 0, icon: <TrendingUp size={18} color="#2ecc71"/>, color: '#2ecc71' },
           { label: 'المصروفات', value: stats.totalExpenses || 0, icon: <TrendingDown size={18} color="#e74c3c"/>, color: '#e74c3c' },
-          { label: 'صافي الربح', value: stats.netProfit || 0, icon: <DollarSign size={18} color="#f59e0b"/>, color: '#2ecc71' },
+          { label: 'صافي الربح', value: stats.netProfit || 0, icon: <DollarSign size={18} color="#f59e0b"/>, color: stats.netProfit >= 0 ? '#2ecc71' : '#e74c3c' },
           { label: 'قيمة المخزن', value: stats.stockValue || 0, icon: <Package size={18} color="#3498db"/>, color: '#3498db' },
         ].map((item, i) => (
           <div key={i} style={{ backgroundColor: '#fff', borderRadius: '20px', padding: '14px', textAlign: 'center', boxShadow: '0 4px 12px rgba(0,0,0,0.02)' }}>
             {item.icon}
             <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '4px' }}>{item.label}</div>
-            <div style={{ fontSize: '1.05rem', fontWeight: '800', color: item.color }}>{item.value.toLocaleString()}</div>
+            <div style={{ fontSize: '1.05rem', fontWeight: '800', color: item.color }}>{item.value.toLocaleString('ar-EG')} ج.م</div>
           </div>
         ))}
       </div>
@@ -128,11 +135,11 @@ const Dashboard = ({
       {/* منحنى ورسم الإنتاج البياني خفيف الوزن والمعدل بدون مكتبات خارجية */}
       <div style={{ backgroundColor: '#fff', borderRadius: '24px', padding: '20px', marginBottom: '20px', boxShadow: '0 10px 25px rgba(0,0,0,0.02)' }}>
         <h3 style={{ fontSize: '15px', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '10px', color: '#1e293b', fontWeight: 'bold' }}>
-          <TrendingUp size={18} color="#e67e22" /> منحنى وحجم الإنتاج الفعلي
+          <TrendingUp size={18} color="#e67e22" /> منحنى وحجم الإنتاج الفعلي السحابي
         </h3>
         
         {chartData.length === 0 ? (
-          <div style={{ textalign: 'center', color: '#94a3b8', fontSize: '0.85rem', padding: '20px 0' }}>لا توجد سجلات إنتاج مسجلة لعرضها برسم بياني حالياً</div>
+          <div style={{ textAlign: 'center', color: '#94a3b8', fontSize: '0.85rem', padding: '20px 0' }}>لا توجد سجلات إنتاج مسجلة لعرضها برسم بياني حالياً</div>
         ) : (
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', height: '160px', padding: '10px 5px 0 5px', background: '#fafafa', borderRadius: '16px', borderBottom: '2px solid #e2e8f0' }}>
             {chartData.map((bar, idx) => (
