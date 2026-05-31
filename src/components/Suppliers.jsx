@@ -2,13 +2,24 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiService } from '../services/apiService';
-import { Truck, UserPlus, Phone, Save, ArrowRight, DollarSign, AlertCircle } from 'lucide-react';
+import { Truck, UserPlus, Phone, Save, ArrowRight, DollarSign, AlertCircle, Building, Mail, FileText, MapPin, Layers } from 'lucide-react';
 import Swal from 'sweetalert2';
 
 const Suppliers = ({ onBack, waitingList = [], onUpdateWaitingList }) => {
   const queryClient = useQueryClient();
-  // تم إزالة حقل address و material تماماً لتجنب مشاكل السكيما
-  const [newSupplier, setNewSupplier] = useState({ name: '', phone: '', debt: 0 });
+  
+  // 📝 تهيئة شاملة لكافة الحقول المتوافقة مع السكيما المركزية لنظام الـ ERP (دون شروط إجبارية عدا الاسم والهاتف)
+  const [newSupplier, setNewSupplier] = useState({ 
+    name: '', 
+    phone: '', 
+    debt: 0,
+    address: '',
+    company_name: '',
+    email: '',
+    tax_number: '',
+    commercial_register: '',
+    supplied_materials: '' // الحقل المخصص لنوع المواد أو البضائع التي يوردها
+  });
   const [payAmount, setPayAmount] = useState({});
   const [showAdd, setShowAdd] = useState(false);
 
@@ -25,10 +36,20 @@ const Suppliers = ({ onBack, waitingList = [], onUpdateWaitingList }) => {
   const addSupplierMutation = useMutation({
     mutationFn: (supplier) => apiService.createData('contacts', supplier),
     onSuccess: () => {
-      // تحديث فوري لذاكرة التخزين المؤقت لـ React Query لإظهار المورد دون الحاجة لإعادة تحميل التطبيق
       queryClient.invalidateQueries({ queryKey: ['contacts'] });
       Swal.fire('تم الحفظ', 'تم تسجيل المورد بنجاح في السيرفر السحابي', 'success');
-      setNewSupplier({ name: '', phone: '', debt: 0 });
+      // إعادة تهيئة النموذج بالكامل
+      setNewSupplier({ 
+        name: '', 
+        phone: '', 
+        debt: 0, 
+        address: '', 
+        company_name: '', 
+        email: '', 
+        tax_number: '', 
+        commercial_register: '', 
+        supplied_materials: '' 
+      });
       setShowAdd(false);
     },
     onError: (error) => {
@@ -54,21 +75,26 @@ const Suppliers = ({ onBack, waitingList = [], onUpdateWaitingList }) => {
       return; 
     }
 
-    // تجهيز البنية الدقيقة المتوافقة مع جدول contacts الصافي بدون أي حقول عناوين زائدة
+    // تجهيز البنية الدقيقة المتوافقة مع جدول contacts المركزي (تم عزل حذف الأدرس لأن السيرفر أصبح يدعمه بأمان)
     const supplierPayload = {
       table: 'contacts', // تأكيد اسم الجدول للباك إند
       contact_id: Date.now(), // معرف فريد أصيل للهاتف والباك إند
       name: newSupplier.name.trim(),
       phone: newSupplier.phone.trim(),
       type: 'supplier', // الـ Flag الرئيسي ليصنفه الباك إند كمورد
-      current_balance: parseFloat(newSupplier.debt) || 0 // مواءمة الحقل ليتطابق مع سكيما نيون (current_balance)
+      address: newSupplier.address.trim(),
+      current_balance: parseFloat(newSupplier.debt) || 0, // مواءمة الحقل ليتطابق مع سكيما نيون
+      company_name: newSupplier.company_name.trim(),
+      email: newSupplier.email.trim().toLowerCase(),
+      tax_number: newSupplier.tax_number.trim(),
+      commercial_register: newSupplier.commercial_register.trim(),
+      supplied_materials: newSupplier.supplied_materials.trim()
     };
 
     addSupplierMutation.mutate(supplierPayload);
   };
 
   const handlePayDebt = (supplier) => {
-    // 🛡️ تحديد المعرف المتوفر بأمان لمنع الـ undefined
     const targetId = supplier?.id || supplier?.contact_id;
     
     if (!targetId) {
@@ -82,20 +108,16 @@ const Suppliers = ({ onBack, waitingList = [], onUpdateWaitingList }) => {
       return; 
     }
     
-    // استخدام حقل current_balance الأصيل القادم من السيرفر بالتوازي مع حقل المديونية القديم كحزام أمان
     const currentDebt = parseFloat(supplier?.current_balance !== undefined ? supplier.current_balance : supplier?.debt) || 0;
     if (amount > currentDebt) {
       Swal.fire('تنبيه', 'المبلغ المدخل أكبر من مديونية المورد الحالية', 'warning');
       return;
     }
 
-    // 🧹 تصفية الكائن القديم وعزل وحذف حقل الـ address تماماً لمنع حدوث خطأ كولوم السيرفر
-    const { address, ...safeSupplierData } = supplier;
-
-    // احتساب المديونية الجديدة لإرسال تحديث الحفظ (Mutate) للسيرفر ومطابقته للسكيما الصافية
+    // بناء كائن التحديث الآمن دون عزل أو حذف الحقول المتوافقة مع السكيما المركزية
     const updatedPayload = {
-      table: 'contacts', // توجيه مباشر وحاسم لجدول جهات التعامل
-      ...safeSupplierData, // تمرير البيانات المفلترة فقط
+      table: 'contacts',
+      ...supplier, // نمرر الكائن كاملاً بما فيه الحقول الضريبية والإضافية
       current_balance: currentDebt - amount
     };
 
@@ -110,29 +132,69 @@ const Suppliers = ({ onBack, waitingList = [], onUpdateWaitingList }) => {
 
   return (
     <div style={{ padding: '15px', direction: 'rtl', fontFamily: "'Tajawal', sans-serif", minHeight: '100vh' }}>
-      <div className="page-header">
+      <div className="page-header" style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '20px' }}>
         <Truck size={28} color="#4f46e5" />
-        <h2>إدارة الموردين السحابية</h2>
+        <h2 style={{ margin: 0, fontSize: '1.5rem', color: '#1e293b' }}>إدارة الموردين السحابية</h2>
       </div>
 
-      <button onClick={() => setShowAdd(!showAdd)} className="btn-primary" style={{ backgroundColor: '#4f46e5', marginBottom: '15px', boxShadow: '0 4px 15px rgba(79, 70, 229, 0.3)' }}>
+      <button onClick={() => setShowAdd(!showAdd)} className="btn-primary" style={{ backgroundColor: '#4f46e5', marginBottom: '15px', width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', boxShadow: '0 4px 15px rgba(79, 70, 229, 0.3)' }}>
         <UserPlus size={20} /> {showAdd ? 'إغلاق النموذج' : 'إضافة مورد جديد'}
       </button>
 
       {showAdd && (
-        <div className="glass-card" style={{ marginBottom: '20px' }}>
-          <h3 style={{ marginTop: 0, fontSize: '1rem', marginBottom: '15px' }}>بيانات المورد الجديد</h3>
+        <div className="glass-card" style={{ marginBottom: '20px', padding: '20px' }}>
+          <h3 style={{ marginTop: 0, fontSize: '1.1rem', marginBottom: '15px', color: '#1e293b' }}>بيانات المورد الجديد</h3>
           <form onSubmit={handleSubmit}>
-            <label className="form-label">اسم المورد / الشركة</label>
-            <input className="glass-input" placeholder="مثال: شركة الأمل للدقيق" value={newSupplier.name} onChange={(e) => setNewSupplier({ ...newSupplier, name: e.target.value })} style={{ marginBottom: '10px' }} />
+            <label className="form-label" style={{ display: 'block', marginBottom: '4px', fontWeight: '500' }}>اسم المورد / المسؤول *</label>
+            <input className="glass-input" placeholder="مثال: أحمد محمد (مسؤول المبيعات)" value={newSupplier.name} onChange={(e) => setNewSupplier({ ...newSupplier, name: e.target.value })} style={{ marginBottom: '12px', width: '100%', boxSizing: 'border-box' }} />
             
-            <label className="form-label"><Phone size={14} /> رقم التواصل</label>
-            <input className="glass-input" placeholder="01xxxxxxxxx" value={newSupplier.phone} onChange={(e) => setNewSupplier({ ...newSupplier, phone: e.target.value })} style={{ marginBottom: '10px' }} />
+            <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '4px', fontWeight: '500' }}>
+              <Building size={14} /> اسم الشركة / المصنع
+            </label>
+            <input className="glass-input" placeholder="مثال: شركة الأمل للمطاحن والدقيق" value={newSupplier.company_name} onChange={(e) => setNewSupplier({ ...newSupplier, company_name: e.target.value })} style={{ marginBottom: '12px', width: '100%', boxSizing: 'border-box' }} />
+
+            <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '4px', fontWeight: '500' }}>
+              <Phone size={14} /> رقم التواصل *
+            </label>
+            <input className="glass-input" placeholder="01xxxxxxxxx" value={newSupplier.phone} onChange={(e) => setNewSupplier({ ...newSupplier, phone: e.target.value })} style={{ marginBottom: '12px', width: '100%', boxSizing: 'border-box' }} />
             
-            <label className="form-label"><DollarSign size={14} /> المديونية السابقة</label>
-            <input type="number" className="glass-input" placeholder="0" value={newSupplier.debt} onChange={(e) => setNewSupplier({ ...newSupplier, debt: e.target.value })} style={{ marginBottom: '15px' }} />
+            <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '4px', fontWeight: '500' }}>
+              <Mail size={14} /> البريد الإلكتروني
+            </label>
+            <input className="glass-input" type="email" placeholder="supplier@company.com" value={newSupplier.email} onChange={(e) => setNewSupplier({ ...newSupplier, email: e.target.value })} style={{ marginBottom: '12px', width: '100%', boxSizing: 'border-box' }} />
+
+            <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '4px', fontWeight: '500' }}>
+              <MapPin size={14} /> عنوان المورد / المستودع
+            </label>
+            <input className="glass-input" placeholder="مثال: المنطقة الصناعية، القاهرة" value={newSupplier.address} onChange={(e) => setNewSupplier({ ...newSupplier, address: e.target.value })} style={{ marginBottom: '12px', width: '100%', boxSizing: 'border-box' }} />
+
+            <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '4px', fontWeight: '500' }}>
+              <Layers size={14} /> الخامات / المواد الموردة
+            </label>
+            <input className="glass-input" placeholder="مثال: دقيق، سكر، مواد تغليف" value={newSupplier.supplied_materials} onChange={(e) => setNewSupplier({ ...newSupplier, supplied_materials: e.target.value })} style={{ marginBottom: '12px', width: '100%', boxSizing: 'border-box' }} />
+
+            {/* 💼 حقول السجل والبطاقة الضريبية والمالية منقسمة بشكل مريح للهواتف المحمولة */}
+            <div style={{ display: 'flex', gap: '10px', marginBottom: '12px' }}>
+              <div style={{ flex: 1 }}>
+                <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '4px', fontWeight: '500', fontSize: '0.85rem' }}>
+                  <FileText size={14} /> الرقم الضريبي
+                </label>
+                <input className="glass-input" placeholder="xxx-xxx-xxx" value={newSupplier.tax_number} onChange={(e) => setNewSupplier({ ...newSupplier, tax_number: e.target.value })} style={{ width: '100%', boxSizing: 'border-box' }} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '4px', fontWeight: '500', fontSize: '0.85rem' }}>
+                  <FileText size={14} /> السجل التجاري
+                </label>
+                <input className="glass-input" placeholder="رقم السجل" value={newSupplier.commercial_register} onChange={(e) => setNewSupplier({ ...newSupplier, commercial_register: e.target.value })} style={{ width: '100%', boxSizing: 'border-box' }} />
+              </div>
+            </div>
+
+            <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '4px', fontWeight: '500' }}>
+              <DollarSign size={14} /> المديونية السابقة المستحقة للمورد
+            </label>
+            <input type="number" className="glass-input" placeholder="0.00" value={newSupplier.debt} onChange={(e) => setNewSupplier({ ...newSupplier, debt: e.target.value })} style={{ marginBottom: '20px', width: '100%', boxSizing: 'border-box' }} />
             
-            <button type="submit" className="btn-primary" style={{ backgroundColor: '#4f46e5' }} disabled={addSupplierMutation.isPending}>
+            <button type="submit" className="btn-primary" style={{ backgroundColor: '#4f46e5', width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '6px' }} disabled={addSupplierMutation.isPending}>
               <Save size={18} /> {addSupplierMutation.isPending ? 'جاري الحفظ بالسحابة...' : 'حفظ المورد سحابياً'}
             </button>
           </form>
@@ -158,12 +220,20 @@ const Suppliers = ({ onBack, waitingList = [], onUpdateWaitingList }) => {
           <div key={currentSupplierId} className="glass-card" style={{ marginBottom: '10px', padding: '15px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '8px' }}>
               <div>
-                <div style={{ fontWeight: 'bold', fontSize: '1rem', color: '#1e293b' }}>{s?.name || 'مورد غير معروف'}</div>
-                <div style={{ fontSize: '0.8rem', color: '#64748b' }}>{s?.phone || 'بدون هاتف'}</div>
+                <div style={{ fontWeight: 'bold', fontSize: '1rem', color: '#1e293b' }}>
+                  {s?.name || 'مورد غير معروف'} {s?.company_name ? `(${s?.company_name})` : ''}
+                </div>
+                <div style={{ fontSize: '0.8rem', color: '#64748b', marginBottom: '2px' }}>📞 {s?.phone || 'بدون هاتف'}</div>
+                {s?.supplied_materials && (
+                  <div style={{ fontSize: '0.8rem', color: '#4f46e5', fontWeight: '500', marginBottom: '2px' }}>📦 الخامات: {s.supplied_materials}</div>
+                )}
+                {s?.address && (
+                  <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>📍 {s.address}</div>
+                )}
               </div>
               {displayDebt > 0 && (
-                <span className="status-badge" style={{ background: '#fee2e2', color: '#ef4444', padding: '4px 8px', borderRadius: '8px', fontSize: '0.8rem' }}>
-                  مدين: {displayDebt.toLocaleString()} ج.م
+                <span className="status-badge" style={{ background: '#fee2e2', color: '#ef4444', padding: '4px 8px', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 'bold', whiteSpace: 'nowrap' }}>
+                  مستحق: {displayDebt.toLocaleString()} ج.م
                 </span>
               )}
             </div>
@@ -196,7 +266,7 @@ const Suppliers = ({ onBack, waitingList = [], onUpdateWaitingList }) => {
         </>
       )}
 
-      <button onClick={onBack} className="btn-back" style={{ marginTop: '20px' }}>
+      <button onClick={onBack} className="btn-back" style={{ marginTop: '20px', width: '100%' }}>
         <ArrowRight size={18} /> العودة للوحة التحكم
       </button>
     </div>
