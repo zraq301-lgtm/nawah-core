@@ -7,7 +7,7 @@ import Swal from 'sweetalert2';
 
 const Suppliers = ({ onBack, waitingList = [], onUpdateWaitingList }) => {
   const queryClient = useQueryClient();
-  const [newSupplier, setNewSupplier] = useState({ name: '', phone: '', address: '', material: 'دقيق', debt: 0 });
+  const [newSupplier, setNewSupplier] = useState({ name: '', phone: '', address: '', debt: 0 });
   const [payAmount, setPayAmount] = useState({});
   const [showAdd, setShowAdd] = useState(false);
 
@@ -27,7 +27,7 @@ const Suppliers = ({ onBack, waitingList = [], onUpdateWaitingList }) => {
       // تحديث فوري لذاكرة التخزين المؤقت لـ React Query لإظهار المورد دون الحاجة لإعادة تحميل التطبيق
       queryClient.invalidateQueries({ queryKey: ['contacts'] });
       Swal.fire('تم الحفظ', 'تم تسجيل المورد بنجاح في السيرفر السحابي', 'success');
-      setNewSupplier({ name: '', phone: '', address: '', material: 'دقيق', debt: 0 });
+      setNewSupplier({ name: '', phone: '', address: '', debt: 0 });
       setShowAdd(false);
     },
     onError: (error) => {
@@ -59,7 +59,7 @@ const Suppliers = ({ onBack, waitingList = [], onUpdateWaitingList }) => {
       contact_id: Date.now(), // معرف فريد أصيل للهاتف والباك إند
       name: newSupplier.name.trim(),
       phone: newSupplier.phone.trim(),
-      address: newSupplier.material, // تخزين نوع المادة في حقل العنوان المتاح بالسكيما
+      address: newSupplier.address.trim() || 'مورد عام', // حقل العنوان المباشر بعد إلغاء القائمة المنسدلة للـ material
       type: 'supplier', // الـ Flag الرئيسي ليصنفه الباك إند كمورد
       current_balance: parseFloat(newSupplier.debt) || 0 // مواءمة الحقل ليتطابق مع سكيما نيون (current_balance)
     };
@@ -69,7 +69,7 @@ const Suppliers = ({ onBack, waitingList = [], onUpdateWaitingList }) => {
 
   const handlePayDebt = (supplier) => {
     // 🛡️ تحديد المعرف المتوفر بأمان لمنع الـ undefined
-    const targetId = supplier.id || supplier.contact_id;
+    const targetId = supplier?.id || supplier?.contact_id;
     
     if (!targetId) {
       Swal.fire('خطأ برمي', 'لم يتم العثور على معرف صالح لهذا المورد', 'error');
@@ -83,7 +83,7 @@ const Suppliers = ({ onBack, waitingList = [], onUpdateWaitingList }) => {
     }
     
     // استخدام حقل current_balance الأصيل القادم من السيرفر بالتوازي مع حقل المديونية القديم كحزام أمان
-    const currentDebt = parseFloat(supplier.current_balance !== undefined ? supplier.current_balance : supplier.debt) || 0;
+    const currentDebt = parseFloat(supplier?.current_balance !== undefined ? supplier.current_balance : supplier?.debt) || 0;
     if (amount > currentDebt) {
       Swal.fire('تنبيه', 'المبلغ المدخل أكبر من مديونية المورد الحالية', 'warning');
       return;
@@ -98,7 +98,7 @@ const Suppliers = ({ onBack, waitingList = [], onUpdateWaitingList }) => {
 
     payDebtMutation.mutate(updatedPayload);
     setPayAmount(prev => ({ ...prev, [targetId]: '' }));
-    Swal.fire('تم السداد', `تم خصم ${amount} ج.م من حساب المورد ${supplier.name}`, 'success');
+    Swal.fire('تم السداد', `تم خصم ${amount} ج.م من حساب المورد ${supplier?.name}`, 'success');
   };
 
   const handleRemoveOrder = (orderId) => { 
@@ -126,15 +126,8 @@ const Suppliers = ({ onBack, waitingList = [], onUpdateWaitingList }) => {
             <label className="form-label"><Phone size={14} /> رقم التواصل</label>
             <input className="glass-input" placeholder="01xxxxxxxxx" value={newSupplier.phone} onChange={(e) => setNewSupplier({ ...newSupplier, phone: e.target.value })} style={{ marginBottom: '10px' }} />
             
-            <label className="form-label">المادة الموردة</label>
-            <select className="glass-input" value={newSupplier.material} onChange={(e) => setNewSupplier({ ...newSupplier, material: e.target.value })} style={{ marginBottom: '10px' }}>
-              <option value="دقيق">دقيق</option>
-              <option value="سمن">سمن</option>
-              <option value="عجوة">عجوة</option>
-              <option value="تغليف">كراتين وتغليف</option>
-              <option value="سكر">سكر</option>
-              <option value="أخرى">أخرى</option>
-            </select>
+            <label className="form-label">العنوان / تفاصيل المورد</label>
+            <input className="glass-input" placeholder="مثال: القاهرة / مورد دقيق فاخر" value={newSupplier.address} onChange={(e) => setNewSupplier({ ...newSupplier, address: e.target.value })} style={{ marginBottom: '10px' }} />
             
             <label className="form-label"><DollarSign size={14} /> المديونية السابقة</label>
             <input type="number" className="glass-input" placeholder="0" value={newSupplier.debt} onChange={(e) => setNewSupplier({ ...newSupplier, debt: e.target.value })} style={{ marginBottom: '15px' }} />
@@ -156,16 +149,19 @@ const Suppliers = ({ onBack, waitingList = [], onUpdateWaitingList }) => {
           <p style={{ margin: 0 }}>لا يوجد موردين مسجلين في بيئة عملك حالياً</p>
         </div>
       ) : suppliers.map(s => {
-        const currentSupplierId = s.id || s.contact_id;
+        // حماية مضافة باستخدام الاختصار الآمن (?) لمنع خطأ كسر القراءة الموضح في الصورة
+        const currentSupplierId = s?.id || s?.contact_id;
+        if (!currentSupplierId) return null;
+
         // قراءة رصيد المديونية بشكل مرن يتوافق مع كلا الحقلين المتاحين بالسحابة
-        const displayDebt = parseFloat(s.current_balance !== undefined ? s.current_balance : s.debt) || 0;
+        const displayDebt = parseFloat(s?.current_balance !== undefined ? s.current_balance : s?.debt) || 0;
         
         return (
           <div key={currentSupplierId} className="glass-card" style={{ marginBottom: '10px', padding: '15px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '8px' }}>
               <div>
-                <div style={{ fontWeight: 'bold', fontSize: '1rem', color: '#1e293b' }}>{s.name}</div>
-                <div style={{ fontSize: '0.8rem', color: '#64748b' }}>{s.address || 'مورد عام'} | {s.phone}</div>
+                <div style={{ fontWeight: 'bold', fontSize: '1rem', color: '#1e293b' }}>{s?.name || 'مورد غير معروف'}</div>
+                <div style={{ fontSize: '0.8rem', color: '#64748b' }}>{s?.address || 'مورد عام'} | {s?.phone || 'بدون هاتف'}</div>
               </div>
               {displayDebt > 0 && (
                 <span className="status-badge" style={{ background: '#fee2e2', color: '#ef4444', padding: '4px 8px', borderRadius: '8px', fontSize: '0.8rem' }}>
