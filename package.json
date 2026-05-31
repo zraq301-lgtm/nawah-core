@@ -34,7 +34,8 @@
     "@capacitor/local-notifications": "^6.0.0",
     "@supabase/supabase-js": "^2.49.1",
     "@prisma/client": "^6.0.0",
-    "postgres": "^3.4.4"
+    "postgres": "^3.4.4",
+    "@tanstack/react-query": "^5.0.0"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.2.0",
