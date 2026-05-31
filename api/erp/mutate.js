@@ -10,63 +10,70 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ success: false, error: 'Method Not Allowed' });
 
-  // 🧠 دمج فك الحزم بذكاء: قراءة المتغيرات سواء أرسلت مباشرة أو داخل كائن data
+  // 🧠 دمج قراءة المتغيرات سواء أرسلت مباشرة أو داخل كائن data
   const { schema, table, ...directData } = req.body;
   const data = req.body.data || directData; 
-  
   const targetTable = table || req.body.table;
 
   if (!schema) return res.status(400).json({ success: false, error: "اسم الـ Schema مطلوب" });
   
-  // تأمين معيار الحروف الصغيرة قسراً لاسم السكيما لضمان ثبات الهيكل في نيون
   const schemaName = String(schema).trim().toLowerCase(); 
 
-  // 🔌 فتح اتصال فوري بمشروع نيون
+  // 🔌 فتح اتصال فوري وسريع بمشروع نيون
   const sql = postgres(process.env.DATABASE_URL, { ssl: 'require', onnotice: () => {} });
 
   try {
-    // 💡 ميكانيكية التحويل الذكي: إذا كان الهدف هو حفظ/تحديث الموردين أو المخزن مباشرة
+    // 1️⃣ 👤 مسار حفظ جهات التعامل (الموردين / العملاء)
     if (targetTable === 'contacts') {
       const contactId = data.id || data.contact_id || Date.now();
-      const safeName = data.name || 'مورد عام';
+      const safeName = data.name || 'جهة تعامل عامة';
       const safePhone = data.phone || '';
       const safeAddress = data.address || '';
       const safeType = data.type || 'supplier';
-      const safeDebt = Number(data.debt || 0);
+      // استخدام الحقل الأصيل بالسكيما current_balance لتمثيل المديونية أو الرصيد
+      const safeBalance = Number(data.current_balance || data.debt || 0);
 
       const [savedContact] = await sql`
-        INSERT INTO ${sql(schemaName)}.contacts (id, name, phone, address, type, created_at)
-        VALUES (${contactId}, ${safeName}, ${safePhone}, ${safeAddress}, ${safeType}, CURRENT_TIMESTAMP)
+        INSERT INTO ${sql(schemaName)}.contacts (id, name, type, phone, address, current_balance)
+        VALUES (${contactId}, ${safeName}, ${safeType}, ${safePhone}, ${safeAddress}, ${safeBalance})
         ON CONFLICT (id) 
         DO UPDATE SET 
           name = EXCLUDED.name, 
           phone = EXCLUDED.phone, 
-          address = EXCLUDED.address, 
-          type = EXCLUDED.type
+          address = EXCLUDED.address,
+          type = EXCLUDED.type,
+          current_balance = EXCLUDED.current_balance
         RETURNING *
       `;
 
       return res.status(200).json({ success: true, data: savedContact });
     }
 
-    // 📦 إذا كان الهدف هو تحديث مباشر لجدول المخزن
-    if (targetTable === 'stock') {
-      const stockId = data.id || Date.now();
+    // 2️⃣ 📦 مسار حفظ أو تحديث المخزون (جدول items الأصيل بالسكيما)
+    if (targetTable === 'stock' || targetTable === 'items') {
+      const itemId = data.id || data.item_id || Date.now();
       const [savedItem] = await sql`
-        INSERT INTO ${sql(schemaName)}.stock (id, name, unit, balance, price, created_at)
-        VALUES (${stockId}, ${data.name}, ${data.unit || 'قطعة'}, ${Number(data.balance || 0)}, ${Number(data.price || 0)}, CURRENT_TIMESTAMP)
+        INSERT INTO ${sql(schemaName)}.items (id, name, item_type, barcode, available_quantity, sale_price)
+        VALUES (
+          ${itemId}, 
+          ${data.name}, 
+          ${data.item_type || 'product'}, 
+          ${data.barcode || `BAR-${itemId}`}, 
+          ${Number(data.available_quantity || data.balance || 0)}, 
+          ${Number(data.sale_price || data.price || 0)}
+        )
         ON CONFLICT (id) 
         DO UPDATE SET 
           name = EXCLUDED.name, 
-          unit = EXCLUDED.unit, 
-          balance = EXCLUDED.balance, 
-          price = EXCLUDED.price
+          barcode = EXCLUDED.barcode, 
+          available_quantity = EXCLUDED.available_quantity, 
+          sale_price = EXCLUDED.sale_price
         RETURNING *
       `;
       return res.status(200).json({ success: true, data: savedItem });
     }
 
-    // 📜 المسار القديم: معالجة الفواتير وحركات النقدية المعقدة (Invoice Transaction)
+    // 3️⃣ 📜 مسار معالجة الفواتير وحركات النقدية الكبيرة (Invoice Transaction)
     const targetContactId = data.contact_id ? Number(data.contact_id) : 1;
     const targetAccountId = data.account_id ? Number(data.account_id) : 1;
     const grossAmount = Number(data.gross_amount || 0);
@@ -81,21 +88,21 @@ export default async function handler(req, res) {
     let savedInvoice = null;
 
     await sql.begin(async (tx) => {
-      // 1️⃣ تأمين الموردين والعملاء
+      // تأمين وجود المورد/العميل لمنع كسر الـ Foreign Key
       await tx`
         INSERT INTO ${tx(schemaName)}.contacts (id, name, type)
         VALUES (${targetContactId}, ${data.contact_name || 'جهة تعامل عامة'}, ${contactType})
         ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, type = EXCLUDED.type
       `;
 
-      // 2️⃣ تأمين الخزينة
+      // تأمين وجود الحساب المالي
       await tx`
         INSERT INTO ${tx(schemaName)}.accounts (id, account_name, account_type)
         VALUES (${targetAccountId}, 'الخزينة الرئيسية', 'cash')
         ON CONFLICT (id) DO NOTHING
       `;
 
-      // 3️⃣ إدخال رأس الفاتورة
+      // إدخال رأس الفاتورة
       const [invoice] = await tx`
         INSERT INTO ${tx(schemaName)}.invoices (
           invoice_number, invoice_type, contact_id, gross_amount, 
@@ -110,7 +117,7 @@ export default async function handler(req, res) {
       if (!invoice) throw new Error("فشل إدخال رأس الفاتورة في نيون");
       savedInvoice = invoice;
 
-      // 4️⃣ تفكيك الأصناف
+      // ترحيل مصفوفة الأصناف وتأمين وجودها في جدول items
       const itemsArray = data.items || data.invoice_items || [];
       if (itemsArray.length > 0) {
         for (const item of itemsArray) {
@@ -129,7 +136,7 @@ export default async function handler(req, res) {
         }
       }
 
-      // 5️⃣ حركة النقدية والسندات المالية
+      // ترحيل السند المالي للحركة النقدية
       if (paidAmount > 0) {
         const cashFlowType = data.invoice_type === 'purchase' ? 'out' : 'in';
         await tx`
