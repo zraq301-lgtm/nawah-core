@@ -1,13 +1,29 @@
 import React, { useState } from 'react';
 import { Users, UserPlus, Phone, Search, ArrowRight, MapPin, AlertCircle } from 'lucide-react';
 
+// 🚀 استيراد الـ Hook الخاص بجلب البيانات سحابياً من النظام الجديد
+import { useQuery } from '@tanstack/react-query';
+import { apiService } from '../services/apiService';
+
 const Customers = ({ onBack, customers = [], onAddCustomer }) => {
   const [showAdd, setShowAdd] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [newCust, setNewCust] = useState({ name: '', phone: '', address: '' });
 
+  // 📥 تشغيل محرك المزامنة الذكي لجلب قائمة الجهات وتصفية العملاء منها سحابياً تلقائياً
+  const { data: cloudContacts = [] } = useQuery({
+    queryKey: ['contacts'],
+    queryFn: () => apiService.getData('contacts'),
+    staleTime: 1000 * 60 * 2, // البيانات تظل طازجة في الكاش لمدة دقيقتين
+  });
+
+  // 🔄 دمج البيانات الحية القادمة من السيرفر مع البيانات المحلية لضمان استقرار العرض (Fallback)
+  const activeCustomersList = cloudContacts.length > 0 
+    ? cloudContacts.filter(c => c.type === 'customer' || c.type === 'general')
+    : customers;
+
   // تصفية العملاء بناءً على محرك البحث الذكي (الاسم أو رقم الهاتف)
-  const filteredCustomers = customers.filter(c => 
+  const filteredCustomers = activeCustomersList.filter(c => 
     (c.name || '').toLowerCase().includes(searchTerm.toLowerCase()) || 
     (c.phone || '').includes(searchTerm)
   );
