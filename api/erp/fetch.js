@@ -26,8 +26,22 @@ export default async function handler(req, res) {
     });
   }
 
-  // 🔌 الاتصال المباشر والآمن بنظام نيون السحابي (Neon DB) لقراءة السكيما الديناميكية
-  const sql = postgres(process.env.DATABASE_URL, { ssl: 'require' });
+  // 🔌 تفكيك الرابط بشكل آمن لحل تحذير Node.js DEP0169 بشكل جذري ومنع الثغرات
+  let sql;
+  try {
+    const parsedUrl = new URL(process.env.DATABASE_URL);
+    sql = postgres({
+      host: parsedUrl.hostname,
+      port: parsedUrl.port || 5432,
+      database: parsedUrl.pathname.replace('/', ''),
+      username: parsedUrl.username,
+      password: parsedUrl.password,
+      ssl: 'require'
+    });
+  } catch (urlErr) {
+    // كود احتياطي (Fallback) في حال واجه المحرك صعوبة في تفكيك الرابط لتأمين استمرار العمل
+    sql = postgres(process.env.DATABASE_URL, { ssl: 'require' });
+  }
 
   try {
     // 🛡️ تأمين وحماية أسماء السكيما والجداول لمنع ثغرات الـ SQL Injection
@@ -89,5 +103,8 @@ export default async function handler(req, res) {
       success: false, 
       error: "فشل استدعاء البيانات من السيرفر السحابي، يرجى إعادة المحاولة" 
     });
+  } finally {
+    // حماية حمولة الذاكرة المفتوحة في السيرفر
+    if (sql) await sql.end({ timeout: 0.5 });
   }
 }
