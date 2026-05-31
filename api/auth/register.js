@@ -2,7 +2,7 @@
 import postgres from 'postgres';
 
 export default async function handler(req, res) {
-  // 🛡️ تفعيل الـ CORS الكامل والمستقر لهواتف الأندرويد
+  // 🛡️ تفعيل الـ CORS الكامل والمستقر لهواتف الأندرويد والمحاكيات
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
@@ -23,7 +23,7 @@ export default async function handler(req, res) {
       }
     }
 
-    // هنا نستقبل حقول الإنشاء (بما فيها اسم الشركة)
+    // استقبال حقول الإنشاء من الفرونت إند
     const { companyName, adminEmail, adminPassword } = body;
 
     if (!companyName || !adminEmail || !adminPassword) {
@@ -33,7 +33,7 @@ export default async function handler(req, res) {
     const cleanEmail = String(adminEmail).trim().toLowerCase();
     const cleanCompanyName = String(companyName).trim();
 
-    // التحقق من عدم تكرار البريد الإلكتروني في الجدول المركزي
+    // 🔍 التحقق من عدم تكرار البريد الإلكتروني في الجدول المركزي قبل عمل أي شيء
     const [existingUser] = await sql`
       SELECT id FROM public.users WHERE lower(email) = ${cleanEmail}
     `;
@@ -42,29 +42,34 @@ export default async function handler(req, res) {
       return res.status(400).json({ success: false, error: 'هذا البريد الإلكتروني مسجل لمؤسسة أخرى بالفعل' });
     }
 
-    // توليد اسم سكيما فريد يعتمد على اسم الشركة لمنع التداخل
-    const sanitizedTitle = cleanCompanyName.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
-    const randomSuffix = Math.floor(1000 + Math.random() * 9000);
-    const generatedSchemaName = `tenant_${sanitizedTitle || 'company'}_${randomSuffix}`;
+    // 🧠 [النظام الجديد]: توليد اسم السكيما الثابت بالاعتماد على الجزء الأول من الإيميل (قبل الـ @)
+    // مثال: ahmad.erp@gmail.com يتحول إلى tenant_ahmad_erp
+    const emailPrefix = cleanEmail.split('@')[0];
+    const sanitizedSchemaName = emailPrefix.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
+    const generatedSchemaName = `tenant_${sanitizedSchemaName}`;
 
-    // بدء المعاملة الذرية السحابية (Transaction) لضمان حفظ الحساب وحفر السكيما معاً
+    // 🏗️ بدء المعاملة الذرية السحابية (Transaction) لضمان التدمير والبناء النظيف الخالي من المخلفات
     await sql.begin(async (tx) => {
-      // أ: إدراج بيانات الشركة والحساب في الجدول المركزي لـ public
+      
+      // 💥 [تطهير نيون الحاسم]: حذف أي سكيما قديمة للمستأجر بنفس الاسم تماماً إن وجدت من تجارب سابقة
+      await tx.unsafe(`DROP SCHEMA IF EXISTS ${generatedSchemaName} CASCADE`);
+
+      // أ: إدراج بيانات الشركة والمستخدم في الجدول المركزي لـ public
       await tx`
         INSERT INTO public.users (email, password, tenant_schema, company_name, role)
         VALUES (${cleanEmail}, ${adminPassword}, ${generatedSchemaName}, ${cleanCompanyName}, 'admin')
       `;
 
-      // ب: استدعاء دالة البناء التلقائية لحفر الجداول وزرع العميل الافتراضي رقم 1
+      // ب: استدعاء دالة البناء التلقائية مع تمرير TRUE لتفعيل الفلترة والهيكلة المحدثة الكاملة (Odoo Style)
       await tx`
-        SELECT public.create_new_client_erp(${generatedSchemaName}, FALSE)
+        SELECT public.create_new_client_erp(${generatedSchemaName}, TRUE)
       `;
     });
 
-    // 🚀 نجاح التأسيس: نرسل الرد ومعه الثوابت الافتراضية صراحة ليمسكها الأندرويد فوراً
+    // 🚀 نجاح التأسيس الكامل: نرسل الرد وبنيته الصافية فوراً ليمسكها الأندرويد والمحاكي
     return res.status(200).json({
       success: true,
-      message: 'تم تأسيس حساب المؤسسة وتجهيز بيئة العمل بنجاح!',
+      message: 'تم تصفية المخلفات وتأسيس مساحة عمل المستأجر الحديثة بنجاح فائق!',
       schema: generatedSchemaName,
       company: cleanCompanyName,
       email: cleanEmail,
