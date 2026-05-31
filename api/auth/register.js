@@ -1,4 +1,4 @@
-// pages/api/auth/login.js
+// pages/api/auth/register.js
 import postgres from 'postgres';
 
 export default async function handler(req, res) {
@@ -14,7 +14,6 @@ export default async function handler(req, res) {
   const sql = postgres(process.env.DATABASE_URL, { ssl: 'require' });
 
   try {
-    // 🛠️ تأمين استلام البيانات: إذا وصلت من الأندرويد كـ String نقوم بعمل Parse لها فوراً
     let body = req.body;
     if (typeof body === 'string') {
       try {
@@ -24,43 +23,59 @@ export default async function handler(req, res) {
       }
     }
 
-    const { email, password } = body;
+    // هنا نستقبل حقول الإنشاء (بما فيها اسم الشركة)
+    const { companyName, adminEmail, adminPassword } = body;
 
-    // التحقق من وصول البيانات بعد المعالجة الذكية
-    if (!email || !password) {
-      return res.status(400).json({ success: false, error: 'البريد الإلكتروني وكلمة المرور مطلوبان لتأكيد الهوية الرقمية' });
+    if (!companyName || !adminEmail || !adminPassword) {
+      return res.status(400).json({ success: false, error: 'جميع الحقول (اسم الشركة، البريد، كلمة المرور) مطلوبة لتأسيس المؤسسة' });
     }
 
-    const cleanEmail = String(email).trim().toLowerCase();
+    const cleanEmail = String(adminEmail).trim().toLowerCase();
+    const cleanCompanyName = String(companyName).trim();
 
-    // 🔍 الاستعلام عن المستخدم من الجدول المركزي لنواة AI
-    const [user] = await sql`
-      SELECT id, email, password, tenant_schema, company_name, role 
-      FROM public.users 
-      WHERE lower(email) = ${cleanEmail}
+    // التحقق من عدم تكرار البريد الإلكتروني في الجدول المركزي
+    const [existingUser] = await sql`
+      SELECT id FROM public.users WHERE lower(email) = ${cleanEmail}
     `;
 
-    // 1️⃣ التحقق من وجود الحساب في النظام
-    if (!user) {
-      return res.status(401).json({ success: false, error: 'خطأ في البريد الإلكتروني أو كلمة المرور، يرجى إعادة المحاولة' });
+    if (existingUser) {
+      return res.status(400).json({ success: false, error: 'هذا البريد الإلكتروني مسجل لمؤسسة أخرى بالفعل' });
     }
 
-    // 2️⃣ مطابقة كلمة المرور المحفوظة (Plain Text متوافق تماماً مع كود الـ register الخاص بك)
-    if (String(user.password) !== String(password)) {
-      return res.status(401).json({ success: false, error: 'خطأ في البريد الإلكتروني أو كلمة المرور، يرجى إعادة المحاولة' });
-    }
+    // توليد اسم سكيما فريد يعتمد على اسم الشركة لمنع التداخل
+    const sanitizedTitle = cleanCompanyName.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+    const randomSuffix = Math.floor(1000 + Math.random() * 9000);
+    const generatedSchemaName = `tenant_${sanitizedTitle || 'company'}_${randomSuffix}`;
 
-    // 🚀 نجاح الدخول: إرسال السكيما المحفورة للواجهة لفتح الـ ERP
+    // بدء المعاملة الذرية السحابية (Transaction) لضمان حفظ الحساب وحفر السكيما معاً
+    await sql.begin(async (tx) => {
+      // أ: إدراج بيانات الشركة والحساب في الجدول المركزي لـ public
+      await tx`
+        INSERT INTO public.users (email, password, tenant_schema, company_name, role)
+        VALUES (${cleanEmail}, ${adminPassword}, ${generatedSchemaName}, ${cleanCompanyName}, 'admin')
+      `;
+
+      // ب: استدعاء دالة البناء التلقائية لحفر الجداول وزرع العميل الافتراضي رقم 1
+      await tx`
+        SELECT public.create_new_client_erp(${generatedSchemaName}, FALSE)
+      `;
+    });
+
+    // 🚀 نجاح التأسيس: نرسل الرد ومعه الثوابت الافتراضية صراحة ليمسكها الأندرويد فوراً
     return res.status(200).json({
       success: true,
-      message: "تم التحقق من الهوية بنجاح والدخول آمن لبيئة العمل",
-      schema: user.tenant_schema,
-      company: user.company_name,
-      email: user.email
+      message: 'تم تأسيس حساب المؤسسة وتجهيز بيئة العمل بنجاح!',
+      schema: generatedSchemaName,
+      company: cleanCompanyName,
+      email: cleanEmail,
+      default_contact_id: 1,
+      default_account_id: 1
     });
 
   } catch (error) {
-    console.error("❌ خطأ خادم تسجيل الدخول المركزي:", error.message);
-    return res.status(500).json({ success: false, error: "فشل الاتصال بالنظام السحابي، يرجى التحقق من اتصال الشبكة" });
+    console.error("❌ خطأ خادم إنشاء المؤسسات المركزي:", error.message);
+    return res.status(500).json({ success: false, error: `فشل بناء مساحة العمل السحابية: ${error.message}` });
+  } finally {
+    if (sql) await sql.end({ timeout: 0.5 });
   }
 }
