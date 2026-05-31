@@ -89,10 +89,13 @@ const Suppliers = ({ onBack, waitingList = [], onUpdateWaitingList }) => {
       return;
     }
 
-    // احتساب المديونية الجديدة لإرسال تحديث الحفظ (Mutate) للسيرفر ومطابقته للسكيما
+    // 🧹 تصفية الكائن القديم وعزل وحذف حقل الـ address تماماً لمنع حدوث خطأ كولوم السيرفر
+    const { address, ...safeSupplierData } = supplier;
+
+    // احتساب المديونية الجديدة لإرسال تحديث الحفظ (Mutate) للسيرفر ومطابقته للسكيما الصافية
     const updatedPayload = {
       table: 'contacts', // توجيه مباشر وحاسم لجدول جهات التعامل
-      ...supplier,
+      ...safeSupplierData, // تمرير البيانات المفلترة فقط
       current_balance: currentDebt - amount
     };
 
