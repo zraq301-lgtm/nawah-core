@@ -15,31 +15,44 @@ const Inventory = ({ onDeleteItem, onInventoryEntry, stockData = [], loading = f
   const [rawMaterialsData, setRawMaterialsData] = useState([]);
   const [finishedProductsData, setFinishedProductsData] = useState([]);
 
-  // 🌟 محرك الفرز والتوزيع الذكي المتوافق تماماً مع السكيما المركزية (items)
+  // 🌟 محرك الفرز والتوزيع الذكي المتوافق تماماً مع السكيما المركزية لجدول (items)
   useEffect(() => {
-    // 🛡️ حزام أمان: استخراج المصفوفة بشكل صحيح سواء كانت قادمة مباشرة أو داخل كائن (stockData.items)
-    const itemsList = Array.isArray(stockData) 
-      ? stockData 
-      : (stockData?.items || stockData?.data || []);
+    // 🛡️ حزام أمان ثلاثي الطبقات: استخراج المصفوفة الصافية أينما اختبأت داخل رد الـ API
+    let itemsList = [];
+    if (Array.isArray(stockData)) {
+      itemsList = stockData;
+    } else if (stockData && Array.isArray(stockData.data)) {
+      itemsList = stockData.data;
+    } else if (stockData && Array.isArray(stockData.items)) {
+      itemsList = stockData.items;
+    }
 
     if (itemsList && itemsList.length > 0) {
-      console.log('📦 الأصناف المكتشفة وجاري فرزها داخل المخزن:', itemsList);
+      console.log('📦 [Inventory Logic] جاري معالجة وفرز الأصناف:', itemsList);
       
-      // الفرز الفولاذي بناءً على الحقل الأصيل بالسكيما item_type مع دعم الفلاتر النصية كحزام أمان إضافي
-      const raws = itemsList.filter(item => {
-        const type = (item?.item_type || item?.type || '').toLowerCase();
-        const name = (item?.name || '').toLowerCase();
-        
-        // الصنف يعتبر مادة خام إذا كان نوعه مادة خام، أو اسمه لا يحتوي على المنتجات المصنعة كالمعمول والجاهز
-        return type === 'raw_material' || type === 'خامات' || (!(name.includes("معمول") || name.includes("جاهز")));
-      });
+      const raws = [];
+      const finished = [];
 
-      const finished = itemsList.filter(item => {
-        const type = (item?.item_type || item?.type || '').toLowerCase();
-        const name = (item?.name || '').toLowerCase();
+      itemsList.forEach(item => {
+        if (!item) return;
+
+        // تنظيف القيم النصية لضمان دقة المقارنة وتجنب أخطاء حقول الـ null
+        const itemType = (item.item_type || item.type || item.category || '').toString().trim().toLowerCase();
+        const itemName = (item.name || '').toString().trim().toLowerCase();
         
-        // الصنف يعتبر منتج نهائي تام الصنع إذا كان يحمل النوع أو يحتوي على الكلمات المفتاحية للبيع
-        return type === 'product' || type === 'منتج نهائي' || name.includes("معمول") || name.includes("جاهز");
+        // 1️⃣ الفرز الصارم للمنتجات التامة (إذا كان النوع product، أو الاسم يحتوي على الكلمات الدلالية)
+        if (
+          itemType === 'product' || 
+          itemType === 'منتج نهائي' || 
+          itemName.includes('معمول') || 
+          itemName.includes('جاهز')
+        ) {
+          finished.push(item);
+        } 
+        // 2️⃣ ما عدا ذلك يصنف تلقائياً كخامات ومواد أولية (حزام أمان لعدم ضياع أي صنف)
+        else {
+          raws.push(item);
+        }
       });
 
       setRawMaterialsData(raws);
@@ -48,7 +61,7 @@ const Inventory = ({ onDeleteItem, onInventoryEntry, stockData = [], loading = f
       setRawMaterialsData([]);
       setFinishedProductsData([]);
     }
-  }, [stockData]); // يتم إعادة الفرز تلقائياً وفوراً عند حدوث أي حركة مشتريات أو سحب سحابية
+  }, [stockData]); // يراقب مصفوفة البيانات المركزية القادمة من React Query في الملف الأب
 
   // دالة لتحديث البيانات من خلال استدعاء دالة التحديث الممررة من الـ App
   const handleRefreshData = () => {
@@ -86,14 +99,14 @@ const Inventory = ({ onDeleteItem, onInventoryEntry, stockData = [], loading = f
       fontSize: '14px',
       userSelect: 'none'
     },
-    activeTab: { background: '#4f46e5', color: '#fff', boxShadow: '0 4px 12px rgba(79, 70, 229, 0.2)' }, // تغيير الأخضر للأزرق الاحترافي ليتناسق مع لوحة التوريد والموردين
+    activeTab: { background: '#4f46e5', color: '#fff', boxShadow: '0 4px 12px rgba(79, 70, 229, 0.2)' },
     contentArea: { marginTop: '10px' },
     loadingText: { textAlign: 'center', padding: '30px', color: '#4f46e5', fontWeight: 'bold' }
   };
 
   return (
     <div style={styles.container}>
-      {/* شريط التنقل العلوي المريح للعمل من الهاتف المحمول */}
+      {/* شريط التنقل العلوي المتجاوب تماماً مع الهاتف المحمول */}
       <div style={styles.tabContainer}>
         <div 
           style={{...styles.tab, ...(activeTab === 'raw' ? styles.activeTab : {})}} 
@@ -122,28 +135,28 @@ const Inventory = ({ onDeleteItem, onInventoryEntry, stockData = [], loading = f
           <div style={styles.loadingText}>🔄 جاري مزامنة بيانات المخازن وتحديث كميات الأصناف...</div>
         ) : (
           <>
-            {/* 1️⃣ واجهة المواد الخام (تم ربطها بدالة سحب المشتريات والفرز الدقيق) */}
+            {/* 1️⃣ واجهة المواد الخام */}
             {activeTab === 'raw' && (
               <RawMaterials 
                 categories={rawMaterialsData} 
                 onDeleteItem={onDeleteItem} 
                 onRefresh={handleRefreshData}
-                onSelectForPurchase={onSelectForPurchase} // تمرير دالة سحب المشتريات للواجهة الداخلية
+                onSelectForPurchase={onSelectForPurchase} 
               />
             )}
 
-            {/* 2️⃣ واجهة تسجيل حركة التوريد (تستقبل جميع الأصناف لإمكانية تعديل كميات أي صنف) */}
+            {/* 2️⃣ واجهة تسجيل حركة التوريد (تستقبل المخزن كاملاً ومدمجاً لإجراء عمليات الجرد السريع والتوريد) */}
             {activeTab === 'supply' && (
               <SupplyEntry 
                 onInventoryEntry={async (entryData) => {
                   await onInventoryEntry(entryData);
-                  handleRefreshData(); // استدعاء التحديث المركزي الفوري فور حفظ حركة توريد لتحديث الكميات المتاحة
+                  handleRefreshData(); 
                 }} 
                 categories={[...rawMaterialsData, ...finishedProductsData]} 
               />
             )}
 
-            {/* 3️⃣ واجهة المنتجات النهائية تام الصنع */}
+            {/* 3️⃣ واجهة المنتجات النهائية */}
             {activeTab === 'finished' && (
               <FinishedProducts 
                 categories={finishedProductsData} 
