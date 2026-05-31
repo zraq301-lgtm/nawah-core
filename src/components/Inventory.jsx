@@ -1,3 +1,4 @@
+// src/components/Inventory.jsx
 import React, { useState, useEffect } from 'react';
 import { Package, Truck, Archive } from 'lucide-react';
 
@@ -6,7 +7,7 @@ import RawMaterials from './Page/RawMaterials';
 import SupplyEntry from './Page/SupplyEntry';
 import FinishedProducts from './Page/FinishedProducts';
 
-const Inventory = ({ onDeleteItem, onInventoryEntry, stockData = [], loading = false, onRefresh }) => {
+const Inventory = ({ onDeleteItem, onInventoryEntry, stockData = [], loading = false, onRefresh, onSelectForPurchase }) => {
   // الحالة المسؤولة عن تحديد أي واجهة تظهر الآن
   const [activeTab, setActiveTab] = useState('raw');
   
@@ -14,14 +15,32 @@ const Inventory = ({ onDeleteItem, onInventoryEntry, stockData = [], loading = f
   const [rawMaterialsData, setRawMaterialsData] = useState([]);
   const [finishedProductsData, setFinishedProductsData] = useState([]);
 
-  // 🌟 دالة الفرز والتوزيع الذكي بناءً على البيانات المستلمة من كود الـ App الرئيسي
+  // 🌟 محرك الفرز والتوزيع الذكي المتوافق تماماً مع السكيما المركزية (items)
   useEffect(() => {
-    if (stockData && stockData.length > 0) {
-      console.log('📦 الأصناف المستلمة من كود الـ App داخل المخزن:', stockData);
+    // 🛡️ حزام أمان: استخراج المصفوفة بشكل صحيح سواء كانت قادمة مباشرة أو داخل كائن (stockData.items)
+    const itemsList = Array.isArray(stockData) 
+      ? stockData 
+      : (stockData?.items || stockData?.data || []);
+
+    if (itemsList && itemsList.length > 0) {
+      console.log('📦 الأصناف المكتشفة وجاري فرزها داخل المخزن:', itemsList);
       
-      // فك الفرز والتوزيع بناءً على الهيكل السحابي والمعياري:
-      const raws = stockData.filter(item => item.item_type === 'raw_material' || item.type === 'خامات' || item.category === 'خامات');
-      const finished = stockData.filter(item => item.item_type === 'product' || item.type === 'منتج نهائي' || item.category === 'منتج نهائي');
+      // الفرز الفولاذي بناءً على الحقل الأصيل بالسكيما item_type مع دعم الفلاتر النصية كحزام أمان إضافي
+      const raws = itemsList.filter(item => {
+        const type = (item?.item_type || item?.type || '').toLowerCase();
+        const name = (item?.name || '').toLowerCase();
+        
+        // الصنف يعتبر مادة خام إذا كان نوعه مادة خام، أو اسمه لا يحتوي على المنتجات المصنعة كالمعمول والجاهز
+        return type === 'raw_material' || type === 'خامات' || (!(name.includes("معمول") || name.includes("جاهز")));
+      });
+
+      const finished = itemsList.filter(item => {
+        const type = (item?.item_type || item?.type || '').toLowerCase();
+        const name = (item?.name || '').toLowerCase();
+        
+        // الصنف يعتبر منتج نهائي تام الصنع إذا كان يحمل النوع أو يحتوي على الكلمات المفتاحية للبيع
+        return type === 'product' || type === 'منتج نهائي' || name.includes("معمول") || name.includes("جاهز");
+      });
 
       setRawMaterialsData(raws);
       setFinishedProductsData(finished);
@@ -29,7 +48,7 @@ const Inventory = ({ onDeleteItem, onInventoryEntry, stockData = [], loading = f
       setRawMaterialsData([]);
       setFinishedProductsData([]);
     }
-  }, [stockData]); // يتم إعادة الفرز تلقائياً فور تغير البيانات القادمة من الـ App
+  }, [stockData]); // يتم إعادة الفرز تلقائياً وفوراً عند حدوث أي حركة مشتريات أو سحب سحابية
 
   // دالة لتحديث البيانات من خلال استدعاء دالة التحديث الممررة من الـ App
   const handleRefreshData = () => {
@@ -39,7 +58,7 @@ const Inventory = ({ onDeleteItem, onInventoryEntry, stockData = [], loading = f
   };
 
   const styles = {
-    container: { padding: '15px', direction: 'rtl', backgroundColor: '#f0f4f8', minHeight: '100vh' },
+    container: { padding: '15px', direction: 'rtl', backgroundColor: '#f0f4f8', minHeight: '100vh', fontFamily: "'Tajawal', sans-serif" },
     tabContainer: { 
       display: 'flex', 
       background: '#fff', 
@@ -64,65 +83,67 @@ const Inventory = ({ onDeleteItem, onInventoryEntry, stockData = [], loading = f
       alignItems: 'center',
       justifyContent: 'center',
       gap: '8px',
-      fontSize: '14px'
+      fontSize: '14px',
+      userSelect: 'none'
     },
-    activeTab: { background: '#22c55e', color: '#fff' },
+    activeTab: { background: '#4f46e5', color: '#fff', boxShadow: '0 4px 12px rgba(79, 70, 229, 0.2)' }, // تغيير الأخضر للأزرق الاحترافي ليتناسق مع لوحة التوريد والموردين
     contentArea: { marginTop: '10px' },
-    loadingText: { textAlign: 'center', padding: '20px', color: '#64748b', fontWeight: 'bold' }
+    loadingText: { textAlign: 'center', padding: '30px', color: '#4f46e5', fontWeight: 'bold' }
   };
 
   return (
     <div style={styles.container}>
-      {/* شريط التنقل */}
+      {/* شريط التنقل العلوي المريح للعمل من الهاتف المحمول */}
       <div style={styles.tabContainer}>
         <div 
           style={{...styles.tab, ...(activeTab === 'raw' ? styles.activeTab : {})}} 
           onClick={() => setActiveTab('raw')}
         >
-          <Archive size={18} /> الخامات
+          <Archive size={18} /> المواد الخام
         </div>
         <div 
           style={{...styles.tab, ...(activeTab === 'supply' ? styles.activeTab : {})}} 
           onClick={() => setActiveTab('supply')}
         >
-          <Truck size={18} /> توريد
+          <Truck size={18} /> تسجيل حركة توريد
         </div>
         <div 
           style={{...styles.tab, ...(activeTab === 'finished' ? styles.activeTab : {})}} 
           onClick={() => setActiveTab('finished')}
         >
-          <Package size={18} /> منتجات
+          <Package size={18} /> المنتجات النهائية
         </div>
       </div>
 
-      {/* منطقة عرض المحتوى مع مؤشر تحميل ذكي مستلم من الأب */}
+      {/* منطقة عرض المحتوى مع مؤشر تحميل وعرض مرن */}
       <div style={styles.contentArea}>
         
         {loading ? (
-          <div style={styles.loadingText}>جاري مزامنة وجلب بيانات المخازن المعزولة...</div>
+          <div style={styles.loadingText}>🔄 جاري مزامنة بيانات المخازن وتحديث كميات الأصناف...</div>
         ) : (
           <>
-            {/* واجهة الخامات الفولاذية (تستقبل خاماتها المفرزة) */}
+            {/* 1️⃣ واجهة المواد الخام (تم ربطها بدالة سحب المشتريات والفرز الدقيق) */}
             {activeTab === 'raw' && (
               <RawMaterials 
                 categories={rawMaterialsData} 
                 onDeleteItem={onDeleteItem} 
                 onRefresh={handleRefreshData}
+                onSelectForPurchase={onSelectForPurchase} // تمرير دالة سحب المشتريات للواجهة الداخلية
               />
             )}
 
-            {/* واجهة تسجيل التوريد */}
+            {/* 2️⃣ واجهة تسجيل حركة التوريد (تستقبل جميع الأصناف لإمكانية تعديل كميات أي صنف) */}
             {activeTab === 'supply' && (
               <SupplyEntry 
                 onInventoryEntry={async (entryData) => {
                   await onInventoryEntry(entryData);
-                  handleRefreshData(); // استدعاء التحديث المركزي فور حفظ حركة توريد جديدة
+                  handleRefreshData(); // استدعاء التحديث المركزي الفوري فور حفظ حركة توريد لتحديث الكميات المتاحة
                 }} 
                 categories={[...rawMaterialsData, ...finishedProductsData]} 
               />
             )}
 
-            {/* واجهة المنتجات النهائية (تستقبل المنتجات التامة المفرزة) */}
+            {/* 3️⃣ واجهة المنتجات النهائية تام الصنع */}
             {activeTab === 'finished' && (
               <FinishedProducts 
                 categories={finishedProductsData} 
