@@ -11,12 +11,10 @@ export default async function handler(req, res) {
     return res.status(200).end();
   }
 
-  // استقبال طلبات GET فقط بناءً على منطق apiService.js
   if (req.method !== 'GET') {
     return res.status(405).json({ success: false, error: 'الطريقة غير مسموح بها، استخدم GET' });
   }
 
-  // جلب اسم السكيما والجدول من الـ Query Params كما يرسلها التطبيق تماماً
   const { schema, table } = req.query;
 
   if (!schema || !table) {
@@ -26,24 +24,27 @@ export default async function handler(req, res) {
     });
   }
 
-  // 🔌 تهيئة اتصال قاعدة البيانات Neon / PostgreSQL
+  // 🔌 تهيئة اتصال قاعدة البيانات واستخدام معايير الحديثة للـ WHATWG URL لمنع التنبيهات
   let sql;
   try {
-    const parsedUrl = new URL(process.env.DATABASE_URL);
+    const dbUrl = new URL(process.env.DATABASE_URL);
     sql = postgres({
-      host: parsedUrl.hostname,
-      port: parsedUrl.port || 5432,
-      database: parsedUrl.pathname.replace('/', ''),
-      username: parsedUrl.username,
-      password: parsedUrl.password,
-      ssl: 'require'
+      host: dbUrl.hostname,
+      port: dbUrl.port || 5432,
+      database: dbUrl.pathname.replace('/', ''),
+      username: dbUrl.username,
+      password: dbUrl.password,
+      ssl: 'require',
+      onnotice: () => {} // 🔕 كتم التنبيهات والإشعارات الداخلية (Notices) لعدم تشتيت المحرك لـ catch
     });
   } catch (urlErr) {
-    sql = postgres(process.env.DATABASE_URL, { ssl: 'require' });
+    sql = postgres(process.env.DATABASE_URL, { 
+      ssl: 'require',
+      onnotice: () => {} // 🔕 كتم التنبيهات هنا أيضاً
+    });
   }
 
   try {
-    // 🛡️ تنظيف صارم لمنع الأخطاء الإملائية أو الأحرف الغريبة من الموبايل
     const safeSchema = String(schema).trim().toLowerCase().replace(/[^a-z0-9_]/g, '');
     const safeTable = String(table).trim().toLowerCase().replace(/[^a-z0-9_]/g, '');
 
@@ -54,12 +55,10 @@ export default async function handler(req, res) {
       });
     }
 
-    // 🏗️ المحرك التلقائي لإنشاء الجداول لمنع ارتداد الخطأ (Relation does not exist)
+    // 🏗️ المحرك التلقائي التأسيسي المعزول داخل بلوك مستقل تماماً
     try {
-      // التأكد من وجود السكيما الخاصة بالشركة أولاً
       await sql.unsafe(`CREATE SCHEMA IF NOT EXISTS ${safeSchema}`);
 
-      // إذا كان الجدول المطلوب هو المخزن وغير موجود في السكيما، نقوم بإنشائه فوراً
       if (safeTable === 'stock') {
         await sql.unsafe(`
           CREATE TABLE IF NOT EXISTS ${safeSchema}.stock (
@@ -73,7 +72,6 @@ export default async function handler(req, res) {
         `);
       }
 
-      // إذا كان الجدول المطلوب هو جهات الاتصال (موردين/عملاء) وغير موجود
       if (safeTable === 'contacts') {
         await sql.unsafe(`
           CREATE TABLE IF NOT EXISTS ${safeSchema}.contacts (
@@ -88,16 +86,17 @@ export default async function handler(req, res) {
         `);
       }
     } catch (migrationError) {
-      console.warn('⚠️ تنبيه أثناء فحص أو بناء الجداول تلقائياً:', migrationError.message);
+      // طباعة خطأ التأسيس في الكونسول الخلفي فقط دون مقاطعة طلب العميل
+      console.warn('⚠️ تنبيه محرك التأسيس التلقائي:', migrationError.message);
     }
 
-    // 🚀 الاستعلام السحابي الفعلي من السكيما الديناميكية المحددة للعميل
+    // 🚀 الاستعلام السحابي الحقيقي لجلب البيانات الفعلية المخزنة
     const dbResult = await sql`
       SELECT * FROM ${sql(safeSchema)}.${sql(safeTable)}
       ORDER BY id DESC
     `;
 
-    // 🧠 تقسيم جهات الاتصال إذا كان الجدول المطلوب هو contacts
+    // 🧠 تقسيم جهات الاتصال وفرزها ديناميكياً لتغذية الفرونت إند
     if (safeTable === 'contacts') {
       const customers = dbResult.filter(item => item.type === 'customer' || item.type === 'general');
       const suppliers = dbResult.filter(item => item.type === 'supplier');
@@ -116,7 +115,6 @@ export default async function handler(req, res) {
       });
     }
 
-    // الرد القياسي لباقي جداول النظام (مثل جدول stock)
     return res.status(200).json({ 
       success: true, 
       table: safeTable,
@@ -125,15 +123,11 @@ export default async function handler(req, res) {
     });
 
   } catch (error) {
-    console.error(`❌ خطأ حرج في سحابة Vercel للجدول ${table}:`, error.message);
+    console.error(`❌ خطأ حرج حقيقي أثناء معالجة جدول ${table}:`, error.message);
     
-    // حل احترافي: إذا كان هناك مشكلة بالجدول لم يتم حلها بالهجرة، ارجع مصفوفة فارغة لتجنب انهيار فرونت إند التطبيق
-    return res.status(200).json({
-      success: true,
-      table: table,
-      schema: schema,
-      data: [],
-      note: "تم إرجاع مصفوفة فارغة كإجراء وقائي لمنع توقف التطبيق"
+    return res.status(500).json({
+      success: false,
+      error: "حدث خطأ في السيرفر أثناء معالجة البيانات، يرجى المحاولة لاحقاً"
     });
   } finally {
     if (sql) await sql.end({ timeout: 0.5 });
