@@ -1,10 +1,10 @@
-// src/components/Page/ProductionManager.jsx
+// src/components/ProductionManager.jsx
 import React, { useState, useEffect } from 'react';
 import { Factory, Save, ArrowLeft, AlertTriangle, Box, Calendar, Clock, Plus, Trash2, Zap, RefreshCw } from 'lucide-react';
 
-// 🚀 إدارة الكاش السحابي للـ ERP
+// 🚀 إدارة الكاش السحابي للـ ERP (تم تعديل المسار ليتطابق مع مكان الملف الحالي)
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { apiService } from '../../services/apiService';
+import { apiService } from '../services/apiService';
 
 const ProductionManager = ({ onSaveProduction, onSaveWaste, onBack }) => {
   const queryClient = useQueryClient();
@@ -224,7 +224,7 @@ const ProductionManager = ({ onSaveProduction, onSaveWaste, onBack }) => {
         </div>
         
         {isLoading ? (
-          <div style={{ textAlign: 'center', padding: '20px', color: '#4f46e5', fontWeight: 'bold', fontSize: '14px' }}>
+          <div style={{ texttextAligen: 'center', padding: '20px', color: '#4f46e5', fontWeight: 'bold', fontSize: '14px' }}>
             🔄 جاري جلب كميات الخامات المتوفرة بالسكيما الحية...
           </div>
         ) : (
