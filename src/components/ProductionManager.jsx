@@ -44,6 +44,7 @@ const ProductionManager = ({ onBack }) => {
   // حالات تخزين مدخلات الكميات (مربوطة بـ ID الصنف مباشرة لمنع التداخل)
   const [ingredientsInputs, setIngredientsInputs] = useState({});
   const [productsInputs, setProductsInputs] = useState({});
+  const [targetInputs, setTargetInputs] = useState({}); // 🎯 كميات الإنتاج المطلوبة/المستهدفة
   
   const [formData, setFormData] = useState({
     date: new Date().toISOString().split('T')[0],
@@ -70,6 +71,14 @@ const ProductionManager = ({ onBack }) => {
         });
         return updated;
       });
+
+      setTargetInputs(prev => {
+        const updated = { ...prev };
+        readyProducts.forEach(item => {
+          if (item.id && updated[item.id] === undefined) updated[item.id] = 0;
+        });
+        return updated;
+      });
     }
   }, [stockResponse]);
 
@@ -79,6 +88,8 @@ const ProductionManager = ({ onBack }) => {
       setIngredientsInputs(prev => ({ ...prev, [itemId]: numValue }));
     } else if (type === 'products') {
       setProductsInputs(prev => ({ ...prev, [itemId]: numValue }));
+    } else if (type === 'targets') {
+      setTargetInputs(prev => ({ ...prev, [itemId]: numValue }));
     }
   };
 
@@ -88,6 +99,7 @@ const ProductionManager = ({ onBack }) => {
     const consumedItemsQueue = [];
     const producedItemsQueue = [];
     let totalMaterialsCost = 0;
+    let targetDetailsText = ""; // لتوثيق الكميات المستهدفة في الوصف
 
     // 1️⃣ تجميع المواد الخام المستهلكة (لعمل فاتورة سحب من نوع sale)
     for (const [itemId, requiredQty] of Object.entries(ingredientsInputs)) {
@@ -119,13 +131,16 @@ const ProductionManager = ({ onBack }) => {
       return;
     }
 
-    // 2️⃣ تجميع المنتجات التامة التي تم إضافة كمية إنتاج لها فقط
+    // 2️⃣ تجميع المنتجات التامة التي تم إضافة كمية إنتاج لها فعلياً
     let totalProducedUnits = 0;
     for (const [itemId, quantity] of Object.entries(productsInputs)) {
       if (quantity <= 0) continue;
 
       const stockItem = itemsList.find(s => s.id === parseInt(itemId));
       if (!stockItem) continue;
+
+      const targetQty = targetInputs[itemId] || 0;
+      targetDetailsText += `[${stockItem.name}: مطلوب ${targetQty} -> تم ${quantity}] `;
 
       totalProducedUnits += quantity;
       producedItemsQueue.push({
@@ -157,7 +172,7 @@ const ProductionManager = ({ onBack }) => {
         net_amount: totalMaterialsCost,
         paid_amount: totalMaterialsCost,
         remaining_amount: 0,
-        description: `سحب خامات تشغيل إنتاج - وردية ${formData.shift} بتاريخ ${formData.date}`
+        description: `سحب خامات تشغيل إنتاج - وردية ${formData.shift} بتاريخ ${formData.date} | تفاصيل خطة الإنتاج المستهدفة: ${targetDetailsText}`
       });
 
       const saleInvoiceId = saleInvoiceRes?.id || saleInvoiceRes?.data?.id;
@@ -181,7 +196,7 @@ const ProductionManager = ({ onBack }) => {
         net_amount: totalMaterialsCost,
         paid_amount: totalMaterialsCost,
         remaining_amount: 0,
-        description: `إيداع خط الإنتاج التام - وردية ${formData.shift} بتاريخ ${formData.date}`
+        description: `إيداع خط الإنتاج التام - وردية ${formData.shift} بتاريخ ${formData.date} | المستهدف والفعلي: ${targetDetailsText}`
       });
 
       const purchaseInvoiceId = purchaseInvoiceRes?.id || purchaseInvoiceRes?.data?.id;
@@ -210,7 +225,7 @@ const ProductionManager = ({ onBack }) => {
 
   const inputStyle = {
     width: '100%', padding: '10px 12px', borderRadius: '12px', border: '2px solid #e2e8f0',
-    fontSize: '16px', fontWeight: 'bold', textAlign: 'center', outline: 'none', color: '#1e293b', boxSizing: 'border-box'
+    fontSize: '15px', fontWeight: 'bold', textAlign: 'center', outline: 'none', color: '#1e293b', boxSizing: 'border-box'
   };
 
   const cardStyle = {
@@ -277,52 +292,67 @@ const ProductionManager = ({ onBack }) => {
         )}
       </div>
 
-      {/* قسم عرض قائمة المنتجات التامة ووحدات الإنتاج */}
+      {/* قسم عرض قائمة المنتجات التامة ووحدات الإنتاج المستهدفة والفعلية */}
       <div style={{ ...cardStyle, backgroundColor: '#1e293b', color: '#fff' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '15px' }}>
           <Box size={20} color="#3b82f6" />
-          <h3 style={{ margin: 0, color: '#f8fafc', fontSize: '15px', fontWeight: '700' }}>قائمة نوع الإنتاج (عدد الوحدات المنتجة فعلياً)</h3>
+          <h3 style={{ margin: 0, color: '#f8fafc', fontSize: '15px', fontWeight: '700' }}>متابعة خط الإنتاج (الكميات المطلوبة والمنفذة)</h3>
         </div>
 
         {isLoading ? (
           <div style={{ textAlign: 'center', padding: '15px', color: '#3b82f6' }}>جاري تحميل الأصناف...</div>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
             {readyProducts.map(product => (
               <div 
                 key={product.id} 
                 style={{ 
-                  display: 'flex', 
-                  justifyContent: 'space-between', 
-                  alignItems: 'center', 
                   backgroundColor: '#2d3a4f', 
-                  padding: '12px 15px', 
-                  borderRadius: '16px',
+                  padding: '15px', 
+                  borderRadius: '18px',
                   border: '1px solid #475569'
                 }}
               >
-                {/* اسم نوع الإنتاج والوحدة */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                {/* السطر الأول: بيانات المنتج والمخزون الحالي */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', borderBottom: '1px dashed #475569', paddingBottom: '8px' }}>
                   <span style={{ fontSize: '15px', fontWeight: '700', color: '#fff' }}>{product.name}</span>
-                  <span style={{ fontSize: '11px', color: '#94a3b8' }}>المخزون الحالي: {product.available_quantity || 0} وحدة</span>
+                  <span style={{ fontSize: '11px', color: '#94a3b8' }}>الرصيد بالمخزن: {product.available_quantity || 0} وحدة</span>
                 </div>
 
-                {/* خانة إدخال عدد الوحدات التي تم إنتاجها */}
-                <div style={{ width: '130px' }}>
-                  <input 
-                    type="number" 
-                    value={productsInputs[product.id] || ''} 
-                    placeholder="رقم السحب / الإنتاج" 
-                    onChange={(e) => handleInputChange(product.id, e.target.value, 'products')} 
-                    style={{ 
-                      ...inputStyle, 
-                      background: '#1e293b', 
-                      color: '#fff', 
-                      border: '1px solid #475569', 
-                      padding: '8px',
-                      fontSize: '15px'
-                    }} 
-                  />
+                {/* السطر الثاني: حقول إدخال الكمية المطلوبة مقابل المنفذة فعلياً */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', color: '#94a3b8', marginBottom: '4px', textAlign: 'center' }}>🎯 الكمية المطلوبة</label>
+                    <input 
+                      type="number" 
+                      value={targetInputs[product.id] || ''} 
+                      placeholder="المستهدف" 
+                      onChange={(e) => handleInputChange(product.id, e.target.value, 'targets')} 
+                      style={{ 
+                        ...inputStyle, 
+                        background: '#1e293b', 
+                        color: '#f59e0b', // لون برتقالي مميز للمستهدف
+                        border: '1px solid #475569', 
+                        padding: '8px'
+                      }} 
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', color: '#94a3b8', marginBottom: '4px', textAlign: 'center' }}>✅ الكمية المنتجة فعلياً</label>
+                    <input 
+                      type="number" 
+                      value={productsInputs[product.id] || ''} 
+                      placeholder="المنفذ الفعلي" 
+                      onChange={(e) => handleInputChange(product.id, e.target.value, 'products')} 
+                      style={{ 
+                        ...inputStyle, 
+                        background: '#1e293b', 
+                        color: '#10b981', // لون أخضر للمنفذ والجاهز للتسليم
+                        border: '1px solid #475569', 
+                        padding: '8px'
+                      }} 
+                    />
+                  </div>
                 </div>
               </div>
             ))}
