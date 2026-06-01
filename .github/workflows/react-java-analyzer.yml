@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [ main, master, dev ]
 
+# منح الصلاحية للأكشن لتحديث ورفع ملف القفل إلى المستودع تلقائياً
+permissions:
+  contents: write
+
 jobs:
   analyze-data-flow:
     runs-on: ubuntu-latest
@@ -29,10 +33,10 @@ jobs:
           node-version: 20
           cache: 'npm'
 
-      # 4. تثبيت الحزم وبناء المشروع للتأكد من سلامة الأنماط (Types)
-      - name: Install Dependencies & Type Check
+      # 4. تثبيت الحزم وتحديث ملف القفل (تغيير من npm ci إلى npm install لتحديث التضاربات)
+      - name: Install Dependencies, Update Lockfile & Type Check
         run: |
-          npm ci
+          npm install
           npm run build --if-present
 
       # 5. تشغيل الفحص وتصدير النتيجة إلى ملف JSON
@@ -139,3 +143,18 @@ jobs:
           
           // تشغيل كود الجافا فورا
           java Analyzer.java
+
+      # 7. تحديث ونقل ملف القفل المحدث مباشرة وتلقائياً إلى جيت هب في حال نجاح الفحص
+      - name: Commit and Push Updated package-lock.json
+        if: success()
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add package-lock.json
+          # التحقق من وجود تغييرات فعلية لتفادي فشل الأكشن إذا كان الملف متزامناً بالفعل
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: automated package-lock.json synchronization"
+            git push origin HEAD:${{ github.ref_name }}
+          else
+            echo "ملف القفل متطابق ومتزامن بالفعل، لا حاجة للرفع."
+          fi
