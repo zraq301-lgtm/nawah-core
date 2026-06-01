@@ -88,12 +88,14 @@ const ProductionManager = ({ onBack }) => {
 
   const handleInputChange = (itemId, value, type) => {
     const numValue = value === '' ? 0 : parseFloat(value);
+    // تحويل الـ id دائماً لرقم أو نص موحد لمنع التداخل والتعارض
+    const key = itemId.toString();
     if (type === 'ingredients') {
-      setIngredientsInputs(prev => ({ ...prev, [itemId]: numValue }));
+      setIngredientsInputs(prev => ({ ...prev, [key]: numValue }));
     } else if (type === 'products') {
-      setProductsInputs(prev => ({ ...prev, [itemId]: numValue }));
+      setProductsInputs(prev => ({ ...prev, [key]: numValue }));
     } else if (type === 'targets') {
-      setTargetInputs(prev => ({ ...prev, [itemId]: numValue }));
+      setTargetInputs(prev => ({ ...prev, [key]: numValue }));
     }
   };
 
@@ -103,13 +105,13 @@ const ProductionManager = ({ onBack }) => {
     const consumedItemsQueue = [];
     const producedItemsQueue = [];
     let totalMaterialsCost = 0;
-    let targetDetailsText = ""; // لتوثيق الكميات المستهدفة في الوصف
+    let targetDetailsText = ""; 
 
     // 1️⃣ تجميع المواد الخام المستهلكة (لعمل فاتورة سحب من نوع sale)
     for (const [itemId, requiredQty] of Object.entries(ingredientsInputs)) {
       if (requiredQty <= 0) continue;
       
-      const stockItem = itemsList.find(s => s.id === parseInt(itemId));
+      const stockItem = itemsList.find(s => s.id.toString() === itemId.toString());
       if (!stockItem) continue;
 
       const availableQty = parseFloat(stockItem.available_quantity || 0);
@@ -130,7 +132,7 @@ const ProductionManager = ({ onBack }) => {
       });
     }
 
-    // [ربط العمل المتبادل]: منع التشغيل إذا لم يتم تحديد خامات (حل مشكلة رسالة التحذير بالصورة)
+    // منع التشغيل إذا لم يتم تحديد خامات
     if (consumedItemsQueue.length === 0) {
       alert("⚠️ يرجى تحديد مادة خام واحدة على الأقل واستهلاك كمية منها لبدء التشغيل.");
       return;
@@ -141,7 +143,7 @@ const ProductionManager = ({ onBack }) => {
     for (const [itemId, quantity] of Object.entries(productsInputs)) {
       if (quantity <= 0) continue;
 
-      const stockItem = itemsList.find(s => s.id === parseInt(itemId));
+      const stockItem = itemsList.find(s => s.id.toString() === itemId.toString());
       if (!stockItem) continue;
 
       const targetQty = targetInputs[itemId] || 0;
@@ -151,7 +153,7 @@ const ProductionManager = ({ onBack }) => {
       producedItemsQueue.push({
         item_id: stockItem.id,
         quantity: quantity,
-        unit_price: 0 // سيتم احتسابه بالتناسب من التكلفة الإجمالية
+        unit_price: 0 // سيتم احتسابه بالتناسب أدناه
       });
     }
 
@@ -160,7 +162,7 @@ const ProductionManager = ({ onBack }) => {
       return;
     }
 
-    // 3️⃣ التحقق والربط مع الشاشة السفلية (إنتاج الوحدات المخصصة وحساب المرتجع) إذا قام المستخدم بملئها
+    // 3️⃣ التحقق والربط مع الشاشة السفلية (إنتاج الوحدات المخصصة وحساب المرتجع)
     let remainingToStock = 0;
     let isCustomProductionActive = false;
 
@@ -178,12 +180,11 @@ const ProductionManager = ({ onBack }) => {
         return;
       }
       
-      // حساب الباقي الفائض المراد إرجاعه للمخزن تلقائياً
       remainingToStock = totalEnteredQuantity - unitsToProduce;
       isCustomProductionActive = true;
     }
 
-    // حساب توزيع نصيب التكلفة الصافية على الوحدات المنتجة
+    // حساب توزيع نصيب التكلفة الصافية على الوحدات المنتجة بالتساوي بناءً على سحب الخامات الفعلي
     const costPerUnit = totalMaterialsCost / totalEnteredQuantity;
     producedItemsQueue.forEach(p => {
       p.unit_price = parseFloat(costPerUnit.toFixed(2));
@@ -205,6 +206,7 @@ const ProductionManager = ({ onBack }) => {
 
       const saleInvoiceId = saleInvoiceRes?.id || saleInvoiceRes?.data?.id;
 
+      // ترحيل تفاصيل الخامات المسحوبة لربطها بالفاتورة لتفعيل الـ Trigger
       for (const rawItem of consumedItemsQueue) {
         await apiService.postData('invoice_items', {
           invoice_id: saleInvoiceId,
@@ -238,42 +240,68 @@ const ProductionManager = ({ onBack }) => {
         });
       }
 
-      // 🟩 الخطوة الثالثة: ترحيل مستندات الشاشة السفلية تلقائياً (إن وُجدت) في نفس التدفق الزمني
+      // 🟩 الخطوة الثالثة: ترحيل مستندات الشاشة السفلية للوحدات المخصصة وتحديث التكلفة
       let customAlertMessage = "";
       if (isCustomProductionActive) {
         const productionInvoiceNum = `UNIT-PROD-${timestamp}`;
-        await apiService.postData('invoices', {
+        
+        // جلب معرف أول منتج جاهز لربطه بعملية الإنتاج المخصصة ليعمل الـ Trigger بالشاشة السفلية
+        const fallbackProductId = producedItemsQueue[0]?.item_id || 1;
+
+        const prodCustomRes = await apiService.postData('invoices', {
           invoice_number: productionInvoiceNum,
           invoice_type: 'purchase',
           contact_id: 1,
-          gross_amount: 0,
-          net_amount: 0,
-          paid_amount: 0,
+          gross_amount: costPerUnit * unitsToProduce,
+          net_amount: costPerUnit * unitsToProduce,
+          paid_amount: costPerUnit * unitsToProduce,
           remaining_amount: 0,
-          description: `أمر إنتاج مخصص للمنتج: ${customProductName} | الوحدات المحددة للإنتاج: ${unitsToProduce} وحدة | تم خصمها من الإجمالي والمنفذ.`
+          description: `أمر إنتاج مخصص للمنتج: ${customProductName} | الوحدات المحددة للإنتاج: ${unitsToProduce} وحدة.`
         });
 
-        const returnInvoiceNum = `PROD-RET-${timestamp}`;
-        await apiService.postData('invoices', {
-          invoice_number: returnInvoiceNum,
-          invoice_type: 'purchase',
-          contact_id: 1,
-          gross_amount: 0,
-          net_amount: 0,
-          paid_amount: 0,
-          remaining_amount: 0,
-          description: `إرجاع باقي كميات تشغيل الإنتاج الفائضة إلى المخزن - المنتج: ${customProductName} | الكمية المرجوعة: ${remainingToStock} وحدة.`
+        const prodCustomId = prodCustomRes?.id || prodCustomRes?.data?.id;
+        await apiService.postData('invoice_items', {
+          invoice_id: prodCustomId,
+          item_id: fallbackProductId,
+          quantity: unitsToProduce,
+          unit_price: parseFloat(costPerUnit.toFixed(2))
         });
+
+        // فاتورة إرجاع الفائض
+        if (remainingToStock > 0) {
+          const returnInvoiceNum = `PROD-RET-${timestamp}`;
+          const retCustomRes = await apiService.postData('invoices', {
+            invoice_number: returnInvoiceNum,
+            invoice_type: 'purchase',
+            contact_id: 1,
+            gross_amount: costPerUnit * remainingToStock,
+            net_amount: costPerUnit * remainingToStock,
+            paid_amount: costPerUnit * remainingToStock,
+            remaining_amount: 0,
+            description: `إرجاع باقي كميات تشغيل الإنتاج الفائضة إلى المخزن - المنتج: ${customProductName} | الكمية المرجوعة: ${remainingToStock} وحدة.`
+          });
+
+          const retCustomId = retCustomRes?.id || retCustomRes?.data?.id;
+          await apiService.postData('invoice_items', {
+            invoice_id: retCustomId,
+            item_id: fallbackProductId,
+            quantity: remainingToStock,
+            unit_price: parseFloat(costPerUnit.toFixed(2))
+          });
+        }
 
         customAlertMessage = `\n\n🔹 [شاشة تشغيل الوحدات المخصصة]:\n• تم إنتاج: ${unitsToProduce} وحدة من (${customProductName})\n• تم إرجاع الفائض للمخزن: ${remainingToStock} وحدة بنجاح!`;
       }
 
-      // 🔄 تنظيف وتحديث كاش النظام لقراءة الجرد الجديد فوراً
+      // 🔄 تنظيف وتحديث كاش النظام لقراءة الجرد الجديد فوراً من قاعدة البيانات
       await queryClient.invalidateQueries({ queryKey: ['stock'] });
 
       alert(`✅ تم الإنتاج والترحيل بنجاح!\n• تم سحب الخامات تلقائياً بالفاتورة رقم: ${saleInvoiceNumber}\n• تم زيادة المنتجات الجاهزة بالفاتورة رقم: ${purchaseInvoiceNumber}\n• متوسط تكلفة الوحدة المنتجة: ${costPerUnit.toFixed(2)} ج.م${customAlertMessage}`);
       
       // تفريغ الحقول التكميلية بعد النجاح
+      setIngredientsInputs({});
+      setProductsInputs({});
+      setTargetInputs({});
       setCustomProductName('');
       setUnitsToProduce(0);
       if (onBack) onBack();
@@ -353,7 +381,7 @@ const ProductionManager = ({ onBack }) => {
         )}
       </div>
 
-      {/* قسم عرض قائمة المنتجات التامة ووحدات الإنتاج المستهدفة والفعلية */}
+      {/* قسم عرض قائمة المنتجات التامة */}
       <div style={{ ...cardStyle, backgroundColor: '#1e293b', color: '#fff' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '15px' }}>
           <Box size={20} color="#3b82f6" />
@@ -374,13 +402,11 @@ const ProductionManager = ({ onBack }) => {
                   border: '1px solid #475569'
                 }}
               >
-                {/* السطر الأول: بيانات المنتج والمخزون الحالي */}
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', borderBottom: '1px dashed #475569', paddingBottom: '8px' }}>
                   <span style={{ fontSize: '15px', fontWeight: '700', color: '#fff' }}>{product.name}</span>
                   <span style={{ fontSize: '11px', color: '#94a3b8' }}>الرصيد بالمخزن: {product.available_quantity || 0} وحدة</span>
                 </div>
 
-                {/* السطر الثاني: حقول إدخال الكمية المطلوبة مقابل المنفذة فعلياً */}
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                   <div>
                     <label style={{ display: 'block', fontSize: '11px', color: '#94a3b8', marginBottom: '4px', textAlign: 'center' }}>🎯 الكمية المطلوبة</label>
@@ -392,7 +418,7 @@ const ProductionManager = ({ onBack }) => {
                       style={{ 
                         ...inputStyle, 
                         background: '#1e293b', 
-                        color: '#f59e0b', // لون برتقالي مميز للمستهدف
+                        color: '#f59e0b', 
                         border: '1px solid #475569', 
                         padding: '8px'
                       }} 
@@ -408,7 +434,7 @@ const ProductionManager = ({ onBack }) => {
                       style={{ 
                         ...inputStyle, 
                         background: '#1e293b', 
-                        color: '#10b981', // لون أخضر للمنفذ والجاهز للتسليم
+                        color: '#10b981', 
                         border: '1px solid #475569', 
                         padding: '8px'
                       }} 
@@ -421,7 +447,7 @@ const ProductionManager = ({ onBack }) => {
         )}
       </div>
 
-      {/* 🆕 شاشة الإنتاج الإضافية بالأسفل (تعمل بالتزامن مع الحقول العليا وتدعم حساب الفائض) */}
+      {/* الشاشة الإضافية بالأسفل */}
       <div style={{ ...cardStyle, border: '2px solid #e2e8f0' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '15px' }}>
           <PackagePlus size={22} color="#4f46e5" />
