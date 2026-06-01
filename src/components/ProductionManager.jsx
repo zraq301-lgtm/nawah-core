@@ -97,7 +97,7 @@ const ProductionManager = ({ onBack }) => {
     }
   };
 
-  // 🚀 العملية الكبرى: تشغيل السحب والإنتاج التلقائي المتوافق مع الـ Trigger
+  // 🚀 العملية الكبرى المدمجة: تشغيل السحب، الإنتاج التلقائي، وحساب الوحدات المخصصة المرتجعة في خطوة واحدة
   const handleProcessProduction = async () => {
     const timestamp = Date.now();
     const consumedItemsQueue = [];
@@ -130,13 +130,14 @@ const ProductionManager = ({ onBack }) => {
       });
     }
 
+    // [ربط العمل المتبادل]: منع التشغيل إذا لم يتم تحديد خامات (حل مشكلة رسالة التحذير بالصورة)
     if (consumedItemsQueue.length === 0) {
       alert("⚠️ يرجى تحديد مادة خام واحدة على الأقل واستهلاك كمية منها لبدء التشغيل.");
       return;
     }
 
     // 2️⃣ تجميع المنتجات التامة التي تم إضافة كمية إنتاج لها فعلياً
-    let totalProducedUnits = 0;
+    let totalEnteredQuantity = 0;
     for (const [itemId, quantity] of Object.entries(productsInputs)) {
       if (quantity <= 0) continue;
 
@@ -146,7 +147,7 @@ const ProductionManager = ({ onBack }) => {
       const targetQty = targetInputs[itemId] || 0;
       targetDetailsText += `[${stockItem.name}: مطلوب ${targetQty} -> تم ${quantity}] `;
 
-      totalProducedUnits += quantity;
+      totalEnteredQuantity += quantity;
       producedItemsQueue.push({
         item_id: stockItem.id,
         quantity: quantity,
@@ -155,12 +156,35 @@ const ProductionManager = ({ onBack }) => {
     }
 
     if (producedItemsQueue.length === 0) {
-      alert("⚠️ لم يتم إدخال أي كميات إنتاج! يرجى كتابة عدد الوحدات المنتجة أمام الصنف الخاص بها.");
+      alert("⚠️ لم يتم إدخال أي كميات إنتاج! يرجى كتابة عدد الوحدات المنتجة أمام الصنف الخاص بها بالأعلى.");
       return;
     }
 
+    // 3️⃣ التحقق والربط مع الشاشة السفلية (إنتاج الوحدات المخصصة وحساب المرتجع) إذا قام المستخدم بملئها
+    let remainingToStock = 0;
+    let isCustomProductionActive = false;
+
+    if (customProductName.trim() || unitsToProduce > 0) {
+      if (!customProductName.trim()) {
+        alert("⚠️ لقد بدأت في استخدام شاشة الوحدات السفلية، يرجى إدخال اسم المنتج المطلوب إنتاجه أولاً.");
+        return;
+      }
+      if (unitsToProduce <= 0) {
+        alert("⚠️ يرجى تحديد عدد وحدات صالح أكبر من الصفر للإنتاج في الشاشة السفلية.");
+        return;
+      }
+      if (unitsToProduce > totalEnteredQuantity) {
+        alert(`⚠️ عدد الوحدات المراد إنتاجها بالأسفل (${unitsToProduce}) أكبر من إجمالي الكميات المنتجة فعلياً بالأعلى (${totalEnteredQuantity}).`);
+        return;
+      }
+      
+      // حساب الباقي الفائض المراد إرجاعه للمخزن تلقائياً
+      remainingToStock = totalEnteredQuantity - unitsToProduce;
+      isCustomProductionActive = true;
+    }
+
     // حساب توزيع نصيب التكلفة الصافية على الوحدات المنتجة
-    const costPerUnit = totalMaterialsCost / totalProducedUnits;
+    const costPerUnit = totalMaterialsCost / totalEnteredQuantity;
     producedItemsQueue.forEach(p => {
       p.unit_price = parseFloat(costPerUnit.toFixed(2));
     });
@@ -214,90 +238,49 @@ const ProductionManager = ({ onBack }) => {
         });
       }
 
+      // 🟩 الخطوة الثالثة: ترحيل مستندات الشاشة السفلية تلقائياً (إن وُجدت) في نفس التدفق الزمني
+      let customAlertMessage = "";
+      if (isCustomProductionActive) {
+        const productionInvoiceNum = `UNIT-PROD-${timestamp}`;
+        await apiService.postData('invoices', {
+          invoice_number: productionInvoiceNum,
+          invoice_type: 'purchase',
+          contact_id: 1,
+          gross_amount: 0,
+          net_amount: 0,
+          paid_amount: 0,
+          remaining_amount: 0,
+          description: `أمر إنتاج مخصص للمنتج: ${customProductName} | الوحدات المحددة للإنتاج: ${unitsToProduce} وحدة | تم خصمها من الإجمالي والمنفذ.`
+        });
+
+        const returnInvoiceNum = `PROD-RET-${timestamp}`;
+        await apiService.postData('invoices', {
+          invoice_number: returnInvoiceNum,
+          invoice_type: 'purchase',
+          contact_id: 1,
+          gross_amount: 0,
+          net_amount: 0,
+          paid_amount: 0,
+          remaining_amount: 0,
+          description: `إرجاع باقي كميات تشغيل الإنتاج الفائضة إلى المخزن - المنتج: ${customProductName} | الكمية المرجوعة: ${remainingToStock} وحدة.`
+        });
+
+        customAlertMessage = `\n\n🔹 [شاشة تشغيل الوحدات المخصصة]:\n• تم إنتاج: ${unitsToProduce} وحدة من (${customProductName})\n• تم إرجاع الفائض للمخزن: ${remainingToStock} وحدة بنجاح!`;
+      }
+
       // 🔄 تنظيف وتحديث كاش النظام لقراءة الجرد الجديد فوراً
       await queryClient.invalidateQueries({ queryKey: ['stock'] });
 
-      alert(`✅ تم الإنتاج والترحيل بنجاح!\n• تم سحب الخامات تلقائياً بالفاتورة رقم: ${saleInvoiceNumber}\n• تم زيادة المنتجات الجاهزة بالفاتورة رقم: ${purchaseInvoiceNumber}\n• متوسط تكلفة الوحدة المنتجة: ${costPerUnit.toFixed(2)} ج.م`);
+      alert(`✅ تم الإنتاج والترحيل بنجاح!\n• تم سحب الخامات تلقائياً بالفاتورة رقم: ${saleInvoiceNumber}\n• تم زيادة المنتجات الجاهزة بالفاتورة رقم: ${purchaseInvoiceNumber}\n• متوسط تكلفة الوحدة المنتجة: ${costPerUnit.toFixed(2)} ج.م${customAlertMessage}`);
       
-      if (onBack) onBack();
-
-    } catch (error) {
-      console.error("❌ خطأ ترحيل السكيما:", error);
-      alert("🚨 فشل الترحيل السحابي، يرجى مراجعة اتصال السيرفر.");
-    }
-  };
-
-  // 🆕 دالة معالجة خصم كمية إنتاج مخصصة وإرجاع الباقي للمخزن
-  const handleCustomUnitProduction = async () => {
-    if (!customProductName.trim()) {
-      alert("⚠️ يرجى إدخال اسم المنتج المطلوب إنتاجه أولاً.");
-      return;
-    }
-    if (unitsToProduce <= 0) {
-      alert("⚠️ يرجى تحديد عدد وحدات صالح أكبر من الصفر للإنتاج.");
-      return;
-    }
-
-    // حساب إجمالي الكميات الفعلية المدخلة فوق في قسم "الكمية المنتجة فعلياً"
-    let totalEnteredQuantity = 0;
-    for (const quantity of Object.values(productsInputs)) {
-      totalEnteredQuantity += quantity;
-    }
-
-    if (totalEnteredQuantity === 0) {
-      alert("⚠️ لم يتم إدخال أي كميات إنتاج فعلية بالأعلى لخصم الوحدات منها.");
-      return;
-    }
-
-    if (unitsToProduce > totalEnteredQuantity) {
-      alert(`⚠️ عدد الوحدات المراد إنتاجها (${unitsToProduce}) أكبر من إجمالي الكميات المنتجة فعلياً بالأعلى (${totalEnteredQuantity}).`);
-      return;
-    }
-
-    // حساب الباقي المراد إرجاعه للمخزن
-    const remainingToStock = totalEnteredQuantity - unitsToProduce;
-    const timestamp = Date.now();
-
-    try {
-      // 1. ترحيل عملية الإنتاج المخصصة (يمكن ربطها بفاتورة حجز أو أمر إنتاج مخصص)
-      const productionInvoiceNum = `UNIT-PROD-${timestamp}`;
-      const prodRes = await apiService.postData('invoices', {
-        invoice_number: productionInvoiceNum,
-        invoice_type: 'purchase', // إدخال إنتاج للمخزن باسم المنتج المخصص
-        contact_id: 1,
-        gross_amount: 0,
-        net_amount: 0,
-        paid_amount: 0,
-        remaining_amount: 0,
-        description: `أمر إنتاج مخصص للمنتج: ${customProductName} | الوحدات المحددة للإنتاج: ${unitsToProduce} وحدة | تم خصمها من الإجمالي والمنفذ.`
-      });
-
-      // 2. ترحيل فاتورة إرجاع الباقي (الكمية المرتجعة الفائضة) إلى المخزن
-      const returnInvoiceNum = `PROD-RET-${timestamp}`;
-      await apiService.postData('invoices', {
-        invoice_number: returnInvoiceNum,
-        invoice_type: 'purchase',
-        contact_id: 1,
-        gross_amount: 0,
-        net_amount: 0,
-        paid_amount: 0,
-        remaining_amount: 0,
-        description: `إرجاع باقي كميات تشغيل الإنتاج الفائضة إلى المخزن - المنتج: ${customProductName} | الكمية المرجوعة: ${remainingToStock} وحدة.`
-      });
-
-      // 🔄 تحديث بيانات الكاش فوراً بقراءة الجرد الجديد
-      await queryClient.invalidateQueries({ queryKey: ['stock'] });
-
-      alert(`✅ تم تنفيذ عملية الإنتاج المخصصة بنجاح!\n• اسم المنتج: ${customProductName}\n• الوحدات المنتجة المحسوبة: ${unitsToProduce} وحدة\n• الكمية المرجوعة والمتبقية للمخزن: ${remainingToStock} وحدة\n• رقم مستند الإرجاع: ${returnInvoiceNum}`);
-      
-      // تفريغ الحقول بعد النجاح
+      // تفريغ الحقول التكميلية بعد النجاح
       setCustomProductName('');
       setUnitsToProduce(0);
       if (onBack) onBack();
 
     } catch (error) {
-      console.error("❌ خطأ في معالجة شاشة الإنتاج بالأسفل:", error);
-      alert("🚨 فشل ترحيل عملية إنتاج الوحدات، يرجى مراجعة اتصال السيرفر.");
+      console.error("❌ خطأ ترحيل السكيما الموحدة:", error);
+      alert("🚨 فشل الترحيل السحابي، يرجى مراجعة اتصال السيرفر.");
     }
   };
 
@@ -436,23 +419,16 @@ const ProductionManager = ({ onBack }) => {
             ))}
           </div>
         )}
-
-        <button 
-          onClick={handleProcessProduction} 
-          style={{ width: '100%', padding: '15px', background: '#10b981', color: '#fff', border: 'none', borderRadius: '15px', fontWeight: 'bold', fontSize: '16px', marginTop: '20px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
-        >
-          <Save size={18} /> ترحيل كميات الإنتاج المحددة وتفعيل الـ Trigger
-        </button>
       </div>
 
-      {/* 🆕 شاشة الإنتاج الإضافية بالأسفل (حساب الوحدات وخصمها وإرجاع الباقي للمخزن) */}
+      {/* 🆕 شاشة الإنتاج الإضافية بالأسفل (تعمل بالتزامن مع الحقول العليا وتدعم حساب الفائض) */}
       <div style={{ ...cardStyle, border: '2px solid #e2e8f0' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '15px' }}>
           <PackagePlus size={22} color="#4f46e5" />
           <h3 style={{ margin: 0, color: '#1e293b', fontSize: '16px', fontWeight: '700' }}>شاشة تشغيل وإنتاج الوحدات المطلوبة</h3>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px', marginBottom: '15px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px', marginBottom: '5px' }}>
           <div>
             <label style={{ display: 'block', fontSize: '12px', marginBottom: '6px', color: '#64748b', fontWeight: '600' }}>اسم المنتج المطلوب إنتاجه</label>
             <input 
@@ -474,18 +450,18 @@ const ProductionManager = ({ onBack }) => {
             />
           </div>
         </div>
-
-        <button 
-          onClick={handleCustomUnitProduction} 
-          style={{ 
-            width: '100%', padding: '14px', background: '#4f46e5', color: '#fff', 
-            border: 'none', borderRadius: '15px', fontWeight: 'bold', fontSize: '15px', 
-            cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' 
-          }}
-        >
-          <ArrowDownLeft size={18} /> خصم الوحدات وإرجاع المتبقي الفائض إلى المخزن
-        </button>
+        <p style={{ fontSize: '12px', color: '#64748b', marginTop: '8px', lineHeight: '1.5' }}>
+          💡 ملحوظة: كتابة البيانات في هذا القسم وتفعيل زر الحفظ الرئيسي بالأعلى سيقوم تلقائياً بخصم الوحدات المستهدفة وإرجاع الكمية الفائضة المتبقية إلى مخزن الجرد.
+        </p>
       </div>
+
+      {/* زر الحفظ الموحد والذكي للعمليات المترابطة بالكامل */}
+      <button 
+        onClick={handleProcessProduction} 
+        style={{ width: '100%', padding: '16px', background: '#10b981', color: '#fff', border: 'none', borderRadius: '15px', fontWeight: 'bold', fontSize: '16px', marginBottom: '15px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', boxShadow: '0 4px 12px rgba(16, 185, 129, 0.2)' }}
+      >
+        <Save size={18} /> ترحيل وإنتاج العمليات المترابطة وتفعيل الـ Trigger
+      </button>
 
       {/* زر العودة للشاشة السابقة */}
       <button onClick={onBack} style={{ width: '100%', background: '#fff', border: '1px solid #cbd5e1', padding: '14px', borderRadius: '15px', color: '#64748b', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}><ArrowLeft size={16} /> العودة للشاشة السابقة</button>
