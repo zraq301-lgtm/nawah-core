@@ -4,25 +4,23 @@ import { Trash2, Layers, Package, BarChart3, AlertTriangle, Barcode, ShoppingCar
 
 const RawMaterials = ({ categories = [], onDeleteItem, onSelectForPurchase }) => {
   
-  // 🔄 تصفية الخامات فقط وعزل المنتجات التامة (مثل المعمول والجاهز) بناءً على منطق الفلترة الخاص بك
-  // يتم الفحص هنا على حقل `name` المذكور في سكيما جدول public.items
-  const rawData = categories.filter(item => {
-    const name = (item.name || '').toLowerCase();
-    return !(name.includes("معمول") || name.includes("جاهز"));
-  });
+  // 🛡️ حزام أمان: الاعتماد المباشر على البيانات الممررة من الملف الأب (Inventory) 
+  // لأن الأب قام بعمل الفرز الأساسي بالفعل، ونضع هنا فحصاً احتياطياً فقط منعاً لتعليق الصفحة
+  const rawData = Array.isArray(categories) ? categories : [];
 
   return (
     <div style={{ padding: '5px', direction: 'rtl', fontFamily: "'Tajawal', sans-serif" }}>
       
       {rawData.length > 0 ? (
-        rawData.map(item => {
-          // 🛡️ مواءمة الحقول مع السكيما المركزية (items) لنيون:
-          const currentId = item.id;
-          const availableQty = Number(item.available_quantity || 0); // الكمية المتاحة بالمخزن بالسكيما
-          const costPrice = Number(item.cost_price || 0); // سعر التكلفة/الشراء بالسكيما
-          const itemBarcode = item.barcode || 'بدون باركود';
+        rawData.map((item, index) => {
+          // 🛡️ مواءمة واستخراج الحقول طبقاً للسكيما المركزية الموحدة (items) لزاد الخير:
+          const currentId = item?.id || index;
+          const availableQty = Number(item?.available_quantity || item?.quantity || 0); 
+          const costPrice = Number(item?.cost_price || 0); 
+          const itemBarcode = item?.barcode || 'بدون باركود';
+          const itemName = item?.name || 'صنف غير مسمى';
           
-          // حساب مستوى الخطر أو النقص في الرصيد لتنبيه المستخدم قبل سحب المواد الخام
+          // حساب مستوى الخطر (مخزون حرج إذا كانت الكمية 5 أو أقل)
           const isLowStock = availableQty <= 5;
 
           return (
@@ -33,20 +31,24 @@ const RawMaterials = ({ categories = [], onDeleteItem, onSelectForPurchase }) =>
                 marginBottom: '12px', 
                 padding: '16px', 
                 position: 'relative',
-                borderRight: isLowStock ? '4px solid #ef4444' : '4px solid #27ae60',
+                backgroundColor: '#fff',
+                borderRadius: '15px',
+                boxShadow: '0 4px 6px rgba(0,0,0,0.02)',
+                borderRight: isLowStock ? '4px solid #ef4444' : '4px solid #4f46e5',
                 transition: 'transform 0.2s'
               }}
             >
-              {/* السطر الأول: اسم الخامة + الباركود + زر الحذف المعزز بأمان */}
+              {/* السطر الأول: اسم الخامة + الباركود + أزرار التحكم */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <Layers size={18} color={isLowStock ? "#ef4444" : "#4f46e5"} />
                     <h3 style={{ margin: 0, fontSize: '1.05rem', color: '#1e293b', fontWeight: '700' }}>
-                      {item.name}
+                      {itemName}
                     </h3>
                   </div>
-                  {/* عرض الباركود لسهولة مطابقته في فواتير المشتريات (invoice_items) */}
+                  
+                  {/* عرض الباركود المتوافق مع سكيما التوريد والمشتريات */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.75rem', color: '#64748b', marginTop: '2px' }}>
                     <Barcode size={12} />
                     <span>الباركود: {itemBarcode}</span>
@@ -54,7 +56,7 @@ const RawMaterials = ({ categories = [], onDeleteItem, onSelectForPurchase }) =>
                 </div>
                 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  {/* 🛒 زر سريع لإدراج المادة الخام مباشرة في فاتورة مشتريات جديدة إذا كانت متوفرة في الأب */}
+                  {/* 🛒 زر سريع لإدراج المادة الخام مباشرة في فاتورة المشتريات */}
                   {onSelectForPurchase && (
                     <button
                       onClick={() => onSelectForPurchase(item)}
@@ -76,10 +78,10 @@ const RawMaterials = ({ categories = [], onDeleteItem, onSelectForPurchase }) =>
                     </button>
                   )}
 
-                  {/* أيقونة الحذف بتأثير تفاعلي */}
+                  {/* أيقونة الحذف المباشر */}
                   <button 
                     onClick={() => {
-                      if(window.confirm(`هل أنت متأكد من حذف خامة: ${item.name} من شجرة المخازن؟`)) {
+                      if (window.confirm(`هل أنت متأكد من حذف خامة: ${itemName} من المخزن؟`)) {
                         onDeleteItem(currentId);
                       }
                     }} 
@@ -99,15 +101,15 @@ const RawMaterials = ({ categories = [], onDeleteItem, onSelectForPurchase }) =>
                 </div>
               </div>
 
-              {/* مؤشر مرئي سريع لو المادة الخام أوشكت على النفاد */}
+              {/* مؤشر مرئي في حالة انخفاض المخزون */}
               {isLowStock && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#b91c1c', fontSize: '0.75rem', marginBottom: '10px', background: '#fef2f2', padding: '4px 8px', borderRadius: '6px', width: 'fit-content' }}>
                   <AlertTriangle size={12} />
-                  <span>مخزون حرج! سيتم تحديثه تلقائياً فور حفظ فاتورة توريد (Purchase Invoice)</span>
+                  <span>مخزون حرج! سيتم تحديثه تلقائياً فور حفظ حركة توريد</span>
                 </div>
               )}
 
-              {/* السطر الثاني: الحقول المالية والكمية طبقا للسكيما الصارمة لـ items */}
+              {/* السطر الثاني: الحقول المادية والكميات المتزامنة مع الباك إند */}
               <div style={{ display: 'flex', gap: '10px', marginTop: '5px' }}>
                 
                 {/* مربع رصيد الخامة الحالي (available_quantity) */}
@@ -127,7 +129,7 @@ const RawMaterials = ({ categories = [], onDeleteItem, onSelectForPurchase }) =>
                   </span>
                 </div>
 
-                {/* مربع تكلفة/سعر الشراء الحالي (cost_price) */}
+                {/* مربع تكلفة الشراء (cost_price) */}
                 <div style={{ 
                   flex: 1, 
                   background: 'rgba(39, 174, 96, 0.03)', 
@@ -150,9 +152,11 @@ const RawMaterials = ({ categories = [], onDeleteItem, onSelectForPurchase }) =>
           );
         })
       ) : (
-        <div className="glass-card" style={{ textAlign: 'center', padding: '30px', color: '#94a3b8' }}>
-          <Package size={36} style={{ marginBottom: '8px', opacity: 0.4, color: '#4f46e5' }} />
-          <p style={{ margin: 0, fontSize: '0.9rem' }}>لا توجد خامات مسجلة في جدول الأصناف حالياً</p>
+        <div style={{ background: '#fff', borderRadius: '15px', textAlign: 'center', padding: '4px', color: '#94a3b8', boxShadow: '0 4px 6px rgba(0,0,0,0.02)' }}>
+          <div style={{ padding: '30px' }}>
+            <Package size={36} style={{ marginBottom: '8px', opacity: 0.4, color: '#4f46e5' }} />
+            <p style={{ margin: 0, fontSize: '0.9rem' }}>لا توجد خامات مسجلة في جدول الأصناف حالياً</p>
+          </div>
         </div>
       )}
 
