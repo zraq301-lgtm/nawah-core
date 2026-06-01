@@ -1,4 +1,4 @@
-// 🚀 الدالة الكبرى المدمجة للترحيل الذكي (BOM أو مرن) بناءً على مفتاح التبديل
+// 🚀 الدالة الكبرى المدمجة للترحيل الذكي (BOM أو مرن) متوافقة تماماً مع React
   const handleProcessProduction = async () => {
     const timestamp = Date.now();
     let consumedItemsQueue = [];
@@ -6,12 +6,23 @@
     let totalMaterialsCost = 0;
     let targetDetailsText = "";
 
+    // التحقق من وجود البيانات الأساسية لمنع أخطاء الـ Undefined في ريأكت
+    if (!itemsList || itemsList.length === 0) {
+      alert("⚠️ لا توجد بيانات مخزون متاحة حالياً، يرجى تحديث الصفحة.");
+      return;
+    }
+
     try {
       // ----------------------------------------------------
       // 🛡️ المسار الأول: نظام التصنيع القياسي الصارم المستند إلى BOM
       // ----------------------------------------------------
       if (isStrictBOMMode) {
-        for (const [productId, rawValue] of Object.entries(productsInputs)) {
+        if (!bomsList || bomsList.length === 0) {
+          alert("⚠️ لا توجد معادلات إنتاج (BOM) مسجلة بالنظام لتشغيل هذا الوضع.");
+          return;
+        }
+
+        for (const [productId, rawValue] of Object.entries(productsInputs || {})) {
           const produceQty = rawValue === '' ? 0 : parseFloat(rawValue);
           if (produceQty <= 0) continue;
 
@@ -27,9 +38,9 @@
           });
 
           // البحث عن معادلة الإنتاج الجاهزة
-          const productBom = bomsList?.find(b => b.product_id.toString() === productId.toString());
+          const productBom = bomsList.find(b => b.product_id.toString() === productId.toString());
           
-          if (productBom) {
+          if (productBom && productBom.ingredients) {
             for (const ingredient of productBom.ingredients) {
               const calculatedRequiredQty = (produceQty / parseFloat(productBom.base_quantity || 1)) * parseFloat(ingredient.required_quantity);
               const rawItem = itemsList.find(s => s.id.toString() === ingredient.raw_material_id.toString());
@@ -73,7 +84,7 @@
       // ----------------------------------------------------
       else {
         // تجميع يدوي للمواد الخام المستهلكة
-        for (const [itemId, rawValue] of Object.entries(ingredientsInputs)) {
+        for (const [itemId, rawValue] of Object.entries(ingredientsInputs || {})) {
           const requiredQty = rawValue === '' ? 0 : parseFloat(rawValue);
           if (requiredQty <= 0) continue;
           
@@ -94,14 +105,14 @@
 
         // تجميع يدوي للمنتجات التامة
         let totalEnteredQuantity = 0;
-        for (const [itemId, rawValue] of Object.entries(productsInputs)) {
+        for (const [itemId, rawValue] of Object.entries(productsInputs || {})) {
           const quantity = rawValue === '' ? 0 : parseFloat(rawValue);
           if (quantity <= 0) continue;
 
           const stockItem = itemsList.find(s => s.id.toString() === itemId.toString());
           if (!stockItem) continue;
 
-          const targetValue = targetInputs[itemId] || 0;
+          const targetValue = targetInputs?.[itemId] || 0;
           const targetQty = targetValue === '' ? 0 : parseFloat(targetValue);
           targetDetailsText += `[${stockItem.name}: مطلوب ${targetQty} -> تم ${quantity}] `;
 
@@ -122,7 +133,7 @@
       }
 
       // ----------------------------------------------------
-      // 🟩 ترحيل الفواتير السحابية الموحدة (يعمل لكلا الوضعين بأمان)
+      // 🟩 ترحيل الفواتير السحابية الموحدة (Transactions)
       // ----------------------------------------------------
       
       // 1️⃣ إنشاء مستند صرف الخامات (sale) إذا توفرت خامات
@@ -139,7 +150,7 @@
           remaining_amount: 0,
           description: isStrictBOMMode 
             ? `خصم خامات تلقائي قياسي (BOM) لإنتاج: ${targetDetailsText}`
-            : `سحب خامات تشغيل إنتاج يدوي - وردية ${formData.shift} بتاريخ ${formData.date}`
+            : `سحب خامات تشغيل إنتاج يدوي - وردية ${formData?.shift || 'عامة'} بتاريخ ${formData?.date || ''}`
         });
 
         const saleInvoiceId = saleInvoiceRes?.id || saleInvoiceRes?.data?.id;
@@ -169,7 +180,7 @@
           remaining_amount: 0,
           description: isStrictBOMMode
             ? `إيداع آلي للمنتج التام بناءً على معادلة التصنيع المعتمدة BOM.`
-            : `إيداع خط الإنتاج التام اليدوي - وردية ${formData.shift} بتاريخ ${formData.date}`
+            : `إيداع خط الإنتاج التام اليدوي - وردية ${formData?.shift || 'عامة'} بتاريخ ${formData?.date || ''}`
         });
 
         const purchaseInvoiceId = purchaseInvoiceRes?.id || purchaseInvoiceRes?.data?.id;
@@ -183,16 +194,19 @@
         }
       }
 
-      // تحديث كاش الأرصدة بالمخزن فوراً
-      await queryClient.invalidateQueries({ queryKey: ['stock'] });
+      // تحديث السيرفر لإعادة قراءة الجرد المحدث في كاش التطبيق
+      if (queryClient) {
+        await queryClient.invalidateQueries({ queryKey: ['stock'] });
+      }
 
       alert(isStrictBOMMode 
         ? `✅ [نظام ERP القياسي]: تم احتساب المعادلات وخصم الخامات وإيداع المنتج التام سحابياً بنجاح!`
         : `✅ [النظام المرن]: تم ترحيل كميات خط الإنتاج بنجاح!`
       );
       
-      setIngredientsInputs({});
-      setProductsInputs({});
+      // تفريغ الحقول التفاعلية في ريأكت بأمان
+      if (typeof setIngredientsInputs === 'function') setIngredientsInputs({});
+      if (typeof setProductsInputs === 'function') setProductsInputs({});
       if (onBack) onBack();
 
     } catch (error) {
