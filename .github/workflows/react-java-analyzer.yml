@@ -1,4 +1,4 @@
-   name: ERP React Analyzer (Java Powered)
+name: ERP React Analyzer
 
 on:
   push:
@@ -6,7 +6,6 @@ on:
   pull_request:
     branches: [ main, master, dev ]
 
-# منح الصلاحية للأكشن لتحديث ورفع ملف القفل إلى المستودع تلقائياً
 permissions:
   contents: write
 
@@ -15,36 +14,30 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. جلب الكود من المستودع
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # 2. إعداد بيئة جافا (لتشغيل سكربت التحليل)
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
 
-      # 3. إعداد بيئة Node.js لتشغيل فحص الـ React
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: 'npm'
 
-      # 4. تثبيت الحزم وتحديث ملف القفل تلقائياً
-      - name: Install Dependencies, Update Lockfile & Type Check
+      - name: Install Dependencies & Type Check
         run: |
           npm install
           npm run build --if-present
 
-      # 5. تشغيل الفحص وتصدر النتيجة إلى ملف JSON
       - name: Run ESLint and Export JSON
         run: |
           npx eslint "src/**/*.{ts,tsx,js,jsx}" --format json --output-file eslint-report.json || true
 
-      # 6. كتابة وتشغيل سكربت الجافا لتحليل أخطاء نقل البيانات والـ Bugs
       - name: Compile and Run Java Analyzer
         run: |
           cat << 'EOF' > Analyzer.java
@@ -134,10 +127,8 @@ jobs:
               }
           }
           EOF
-          
           java Analyzer.java
 
-      # 7. تحديث ونقل ملف القفل المحدث مباشرة وتلقائياً إلى جيت هب في حال نجاح الفحص
       - name: Commit and Push Updated package-lock.json
         if: success()
         run: |
@@ -148,5 +139,5 @@ jobs:
             git commit -m "chore: automated package-lock.json synchronization"
             git push origin HEAD:${{ github.ref_name }}
           else
-            echo "ملف القفل متطابق ومتزامن بالفعل، لا حاجة للرفع."
-          fi                 
+            echo "No lockfile changes detected."
+          fi
