@@ -1,6 +1,5 @@
-// src/components/ProductionManager.jsx
 import React, { useState, useEffect } from 'react';
-import { Factory, Save, ArrowLeft, Box, Calendar, Clock, Zap, RefreshCw, PackagePlus, ArrowDownLeft } from 'lucide-react';
+import { Factory, Save, ArrowLeft, Box, Calendar, Clock, Zap, RefreshCw, PackagePlus } from 'lucide-react';
 
 // 🚀 إدارة الكاش والمزامنة الفورية لـ زاد الخير
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -9,7 +8,7 @@ import { apiService } from '../services/apiService';
 const ProductionManager = ({ onBack }) => {
   const queryClient = useQueryClient();
 
-  // 📥 جلب بيانات جدول الأصناف (items) من السكيما للحصول على الـ id والأسعار والكميات الحالية
+  // 📥 جلب بيانات جدول الأصناف (items) من السكيما
   const { data: stockResponse, isLoading, refetch } = useQuery({
     queryKey: ['stock'],
     queryFn: () => apiService.getData('stock'),
@@ -33,7 +32,7 @@ const ProductionManager = ({ onBack }) => {
     );
   });
 
-  // 🍩 تصفية المنتجات الجاهزة والنهائية لـ زاد الخير (مثل المعمول والإنتاج التام)
+  // 🍩 تصفية المنتجات الجاهزة والنهائية لـ زاد الخير
   const readyProducts = itemsList.filter(item => {
     if (!item) return false;
     const itemType = (item.item_type || '').toString().toLowerCase().trim();
@@ -41,10 +40,10 @@ const ProductionManager = ({ onBack }) => {
     return itemType === 'product' || itemName.includes('معمول') || itemName.includes('جاهز') || itemType === 'منتج جاهز';
   });
 
-  // حالات تخزين مدخلات الكميات (مربوطة بـ ID الصنف مباشرة لمنع التداخل)
+  // حالات تخزين مدخلات الكميات
   const [ingredientsInputs, setIngredientsInputs] = useState({});
   const [productsInputs, setProductsInputs] = useState({});
-  const [targetInputs, setTargetInputs] = useState({}); // 🎯 كميات الإنتاج المطلوبة/المستهدفة
+  const [targetInputs, setTargetInputs] = useState({}); // 🎯 كميات الإنتاج المطلوبة
   
   // 🆕 حالات شاشة إنتاج الوحدات الجديدة بالأسفل
   const [customProductName, setCustomProductName] = useState('');
@@ -57,13 +56,15 @@ const ProductionManager = ({ onBack }) => {
 
   const shifts = ['الأولى', 'الثانية', 'السهرة', 'إضافي'];
 
-  // تهيئة قيم المدخلات فور جلب البيانات من السيرفر دون مسح مدخلات المستخدم الحالية
+  // ✨ تحديث آمن: تهيئة القيم دون التعديل على المدخلات الحالية للمستحدم ودون الدخول في Loop
   useEffect(() => {
     if (itemsList.length > 0) {
       setIngredientsInputs(prev => {
         const updated = { ...prev };
         rawMaterials.forEach(item => {
-          if (item.id && updated[item.id] === undefined) updated[item.id] = 0;
+          if (item.id && updated[item.id] === undefined) {
+            updated[item.id] = ''; // جعلها نص فارغ بدلاً من 0 لتسهيل الكتابة
+          }
         });
         return updated;
       });
@@ -71,7 +72,9 @@ const ProductionManager = ({ onBack }) => {
       setProductsInputs(prev => {
         const updated = { ...prev };
         readyProducts.forEach(item => {
-          if (item.id && updated[item.id] === undefined) updated[item.id] = 0;
+          if (item.id && updated[item.id] === undefined) {
+            updated[item.id] = '';
+          }
         });
         return updated;
       });
@@ -79,27 +82,27 @@ const ProductionManager = ({ onBack }) => {
       setTargetInputs(prev => {
         const updated = { ...prev };
         readyProducts.forEach(item => {
-          if (item.id && updated[item.id] === undefined) updated[item.id] = 0;
+          if (item.id && updated[item.id] === undefined) {
+            updated[item.id] = '';
+          }
         });
         return updated;
       });
     }
-  }, [stockResponse]);
+  }, [stockResponse]); // تعتمد فقط على استجابة السيرفر وتعمل بشكل آمن
 
   const handleInputChange = (itemId, value, type) => {
-    const numValue = value === '' ? 0 : parseFloat(value);
-    // تحويل الـ id دائماً لرقم أو نص موحد لمنع التداخل والتعارض
     const key = itemId.toString();
     if (type === 'ingredients') {
-      setIngredientsInputs(prev => ({ ...prev, [key]: numValue }));
+      setIngredientsInputs(prev => ({ ...prev, [key]: value }));
     } else if (type === 'products') {
-      setProductsInputs(prev => ({ ...prev, [key]: numValue }));
+      setProductsInputs(prev => ({ ...prev, [key]: value }));
     } else if (type === 'targets') {
-      setTargetInputs(prev => ({ ...prev, [key]: numValue }));
+      setTargetInputs(prev => ({ ...prev, [key]: value }));
     }
   };
 
-  // 🚀 العملية الكبرى المدمجة: تشغيل السحب، الإنتاج التلقائي، وحساب الوحدات المخصصة المرتجعة في خطوة واحدة
+  // 🚀 العملية الكبرى المدمجة
   const handleProcessProduction = async () => {
     const timestamp = Date.now();
     const consumedItemsQueue = [];
@@ -107,8 +110,9 @@ const ProductionManager = ({ onBack }) => {
     let totalMaterialsCost = 0;
     let targetDetailsText = ""; 
 
-    // 1️⃣ تجميع المواد الخام المستهلكة (لعمل فاتورة سحب من نوع sale)
-    for (const [itemId, requiredQty] of Object.entries(ingredientsInputs)) {
+    // 1️⃣ تجميع المواد الخام المستهلكة
+    for (const [itemId, rawValue] of Object.entries(ingredientsInputs)) {
+      const requiredQty = rawValue === '' ? 0 : parseFloat(rawValue);
       if (requiredQty <= 0) continue;
       
       const stockItem = itemsList.find(s => s.id.toString() === itemId.toString());
@@ -117,7 +121,6 @@ const ProductionManager = ({ onBack }) => {
       const availableQty = parseFloat(stockItem.available_quantity || 0);
       const costPrice = parseFloat(stockItem.cost_price || 0);
 
-      // حزام الأمان ضد عجز الرصيد
       if (availableQty < requiredQty) {
         alert(`⚠️ عجز في المادة الخام: ${stockItem.name}\nالمطلوب: ${requiredQty} | المتوفر بالمخزن: ${availableQty}`);
         return;
@@ -132,28 +135,29 @@ const ProductionManager = ({ onBack }) => {
       });
     }
 
-    // منع التشغيل إذا لم يتم تحديد خامات
     if (consumedItemsQueue.length === 0) {
       alert("⚠️ يرجى تحديد مادة خام واحدة على الأقل واستهلاك كمية منها لبدء التشغيل.");
       return;
     }
 
-    // 2️⃣ تجميع المنتجات التامة التي تم إضافة كمية إنتاج لها فعلياً
+    // 2️⃣ تجميع المنتجات التامة
     let totalEnteredQuantity = 0;
-    for (const [itemId, quantity] of Object.entries(productsInputs)) {
+    for (const [itemId, rawValue] of Object.entries(productsInputs)) {
+      const quantity = rawValue === '' ? 0 : parseFloat(rawValue);
       if (quantity <= 0) continue;
 
       const stockItem = itemsList.find(s => s.id.toString() === itemId.toString());
       if (!stockItem) continue;
 
-      const targetQty = targetInputs[itemId] || 0;
+      const targetValue = targetInputs[itemId] || 0;
+      const targetQty = targetValue === '' ? 0 : parseFloat(targetValue);
       targetDetailsText += `[${stockItem.name}: مطلوب ${targetQty} -> تم ${quantity}] `;
 
       totalEnteredQuantity += quantity;
       producedItemsQueue.push({
         item_id: stockItem.id,
         quantity: quantity,
-        unit_price: 0 // سيتم احتسابه بالتناسب أدناه
+        unit_price: 0
       });
     }
 
@@ -162,36 +166,36 @@ const ProductionManager = ({ onBack }) => {
       return;
     }
 
-    // 3️⃣ التحقق والربط مع الشاشة السفلية (إنتاج الوحدات المخصصة وحساب المرتجع)
+    // 3️⃣ التحقق والربط مع الشاشة السفلية
     let remainingToStock = 0;
     let isCustomProductionActive = false;
+    const unitsToProduceNum = unitsToProduce === '' ? 0 : parseInt(unitsToProduce);
 
-    if (customProductName.trim() || unitsToProduce > 0) {
+    if (customProductName.trim() || unitsToProduceNum > 0) {
       if (!customProductName.trim()) {
         alert("⚠️ لقد بدأت في استخدام شاشة الوحدات السفلية، يرجى إدخال اسم المنتج المطلوب إنتاجه أولاً.");
         return;
       }
-      if (unitsToProduce <= 0) {
+      if (unitsToProduceNum <= 0) {
         alert("⚠️ يرجى تحديد عدد وحدات صالح أكبر من الصفر للإنتاج في الشاشة السفلية.");
         return;
       }
-      if (unitsToProduce > totalEnteredQuantity) {
-        alert(`⚠️ عدد الوحدات المراد إنتاجها بالأسفل (${unitsToProduce}) أكبر من إجمالي الكميات المنتجة فعلياً بالأعلى (${totalEnteredQuantity}).`);
+      if (unitsToProduceNum > totalEnteredQuantity) {
+        alert(`⚠️ عدد الوحدات المراد إنتاجها بالأسفل (${unitsToProduceNum}) أكبر من إجمالي الكميات المنتجة فعلياً بالأعلى (${totalEnteredQuantity}).`);
         return;
       }
       
-      remainingToStock = totalEnteredQuantity - unitsToProduce;
+      remainingToStock = totalEnteredQuantity - unitsToProduceNum;
       isCustomProductionActive = true;
     }
 
-    // حساب توزيع نصيب التكلفة الصافية على الوحدات المنتجة بالتساوي بناءً على سحب الخامات الفعلي
     const costPerUnit = totalMaterialsCost / totalEnteredQuantity;
     producedItemsQueue.forEach(p => {
       p.unit_price = parseFloat(costPerUnit.toFixed(2));
     });
 
     try {
-      // 🟩 الخطوة الأولى: إنشاء فاتورة السحب (sale) لتشغيل الـ Trigger وخفض أرصدة الخامات
+      // 🟩 الخطوة الأولى: إنشاء فاتورة السحب (sale)
       const saleInvoiceNumber = `RAW-OUT-${timestamp}`;
       const saleInvoiceRes = await apiService.postData('invoices', {
         invoice_number: saleInvoiceNumber,
@@ -206,7 +210,6 @@ const ProductionManager = ({ onBack }) => {
 
       const saleInvoiceId = saleInvoiceRes?.id || saleInvoiceRes?.data?.id;
 
-      // ترحيل تفاصيل الخامات المسحوبة لربطها بالفاتورة لتفعيل الـ Trigger
       for (const rawItem of consumedItemsQueue) {
         await apiService.postData('invoice_items', {
           invoice_id: saleInvoiceId,
@@ -216,7 +219,7 @@ const ProductionManager = ({ onBack }) => {
         });
       }
 
-      // 🟩 الخطوة الثانية: إنشاء فاتورة الإدخال (purchase) لتشغيل الـ Trigger وزيادة أرصدة المنتجات التامة
+      // 🟩 الخطوة الثانية: إنشاء فاتورة الإدخال (purchase)
       const purchaseInvoiceNumber = `PROD-IN-${timestamp}`;
       const purchaseInvoiceRes = await apiService.postData('invoices', {
         invoice_number: purchaseInvoiceNumber,
@@ -240,34 +243,31 @@ const ProductionManager = ({ onBack }) => {
         });
       }
 
-      // 🟩 الخطوة الثالثة: ترحيل مستندات الشاشة السفلية للوحدات المخصصة وتحديث التكلفة
+      // 🟩 الخطوة الثالثة: ترحيل مستندات الشاشة السفلية
       let customAlertMessage = "";
       if (isCustomProductionActive) {
         const productionInvoiceNum = `UNIT-PROD-${timestamp}`;
-        
-        // جلب معرف أول منتج جاهز لربطه بعملية الإنتاج المخصصة ليعمل الـ Trigger بالشاشة السفلية
         const fallbackProductId = producedItemsQueue[0]?.item_id || 1;
 
         const prodCustomRes = await apiService.postData('invoices', {
           invoice_number: productionInvoiceNum,
           invoice_type: 'purchase',
           contact_id: 1,
-          gross_amount: costPerUnit * unitsToProduce,
-          net_amount: costPerUnit * unitsToProduce,
-          paid_amount: costPerUnit * unitsToProduce,
+          gross_amount: costPerUnit * unitsToProduceNum,
+          net_amount: costPerUnit * unitsToProduceNum,
+          paid_amount: costPerUnit * unitsToProduceNum,
           remaining_amount: 0,
-          description: `أمر إنتاج مخصص للمنتج: ${customProductName} | الوحدات المحددة للإنتاج: ${unitsToProduce} وحدة.`
+          description: `أمر إنتاج مخصص للمنتج: ${customProductName} | الوحدات المحددة للإنتاج: ${unitsToProduceNum} وحدة.`
         });
 
         const prodCustomId = prodCustomRes?.id || prodCustomRes?.data?.id;
         await apiService.postData('invoice_items', {
           invoice_id: prodCustomId,
           item_id: fallbackProductId,
-          quantity: unitsToProduce,
+          quantity: unitsToProduceNum,
           unit_price: parseFloat(costPerUnit.toFixed(2))
         });
 
-        // فاتورة إرجاع الفائض
         if (remainingToStock > 0) {
           const returnInvoiceNum = `PROD-RET-${timestamp}`;
           const retCustomRes = await apiService.postData('invoices', {
@@ -290,10 +290,10 @@ const ProductionManager = ({ onBack }) => {
           });
         }
 
-        customAlertMessage = `\n\n🔹 [شاشة تشغيل الوحدات المخصصة]:\n• تم إنتاج: ${unitsToProduce} وحدة من (${customProductName})\n• تم إرجاع الفائض للمخزن: ${remainingToStock} وحدة بنجاح!`;
+        customAlertMessage = `\n\n🔹 [شاشة تشغيل الوحدات المخصصة]:\n• تم إنتاج: ${unitsToProduceNum} وحدة من (${customProductName})\n• تم إرجاع الفائض للمخزن: ${remainingToStock} وحدة بنجاح!`;
       }
 
-      // 🔄 تنظيف وتحديث كاش النظام لقراءة الجرد الجديد فوراً من قاعدة البيانات
+      // 🔄 تحديث الكاش لقراءة الجرد الجديد فوراً
       await queryClient.invalidateQueries({ queryKey: ['stock'] });
 
       alert(`✅ تم الإنتاج والترحيل بنجاح!\n• تم سحب الخامات تلقائياً بالفاتورة رقم: ${saleInvoiceNumber}\n• تم زيادة المنتجات الجاهزة بالفاتورة رقم: ${purchaseInvoiceNumber}\n• متوسط تكلفة الوحدة المنتجة: ${costPerUnit.toFixed(2)} ج.م${customAlertMessage}`);
@@ -367,7 +367,7 @@ const ProductionManager = ({ onBack }) => {
                 <div style={{ fontSize: '13px', fontWeight: '700', marginBottom: '6px', color: '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.name}</div>
                 <input 
                   type="number" 
-                  value={ingredientsInputs[item.id] || ''} 
+                  value={ingredientsInputs[item.id] !== undefined ? ingredientsInputs[item.id] : ''} 
                   placeholder="0" 
                   onChange={(e) => handleInputChange(item.id, e.target.value, 'ingredients')} 
                   style={{ ...inputStyle, padding: '8px' }} 
@@ -412,7 +412,7 @@ const ProductionManager = ({ onBack }) => {
                     <label style={{ display: 'block', fontSize: '11px', color: '#94a3b8', marginBottom: '4px', textAlign: 'center' }}>🎯 الكمية المطلوبة</label>
                     <input 
                       type="number" 
-                      value={targetInputs[product.id] || ''} 
+                      value={targetInputs[product.id] !== undefined ? targetInputs[product.id] : ''} 
                       placeholder="المستهدف" 
                       onChange={(e) => handleInputChange(product.id, e.target.value, 'targets')} 
                       style={{ 
@@ -428,7 +428,7 @@ const ProductionManager = ({ onBack }) => {
                     <label style={{ display: 'block', fontSize: '11px', color: '#94a3b8', marginBottom: '4px', textAlign: 'center' }}>✅ الكمية المنتجة فعلياً</label>
                     <input 
                       type="number" 
-                      value={productsInputs[product.id] || ''} 
+                      value={productsInputs[product.id] !== undefined ? productsInputs[product.id] : ''} 
                       placeholder="المنفذ الفعلي" 
                       onChange={(e) => handleInputChange(product.id, e.target.value, 'products')} 
                       style={{ 
@@ -471,7 +471,7 @@ const ProductionManager = ({ onBack }) => {
               type="number" 
               placeholder="0" 
               value={unitsToProduce || ''} 
-              onChange={(e) => setUnitsToProduce(e.target.value === '' ? 0 : parseInt(e.target.value))} 
+              onChange={(e) => setUnitsToProduce(e.target.value)} 
               style={inputStyle} 
             />
           </div>
