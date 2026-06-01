@@ -1,4 +1,117 @@
-// 🚀 الدالة الكبرى المدمجة للترحيل الذكي (BOM أو مرن) متوافقة تماماً مع React
+// src/components/ProductionManager.jsx
+import React, { useState, useEffect } from 'react';
+import { Factory, Save, ArrowLeft, Box, Calendar, Clock, Zap, RefreshCw, PackagePlus } from 'lucide-react';
+
+// 🚀 إدارة الكاش والمزامنة الفورية لـ زاد الخير
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { apiService } from '../services/apiService';
+
+const ProductionManager = ({ onBack }) => {
+  const queryClient = useQueryClient();
+
+  // 🎛️ وضع التصنيع الافتراضي: false للوضع المرن واليدوي، true لوضع BOM القياسي الصارم
+  const [isStrictBOMMode, setIsStrictBOMMode] = useState(false);
+
+  // 📥 جلب بيانات جدول الأصناف (items) من السكيما للحصول على الـ id والأسعار والكميات الحالية
+  const { data: stockResponse, isLoading, refetch } = useQuery({
+    queryKey: ['stock'],
+    queryFn: () => apiService.getData('stock'),
+    staleTime: 0, 
+  });
+
+  // 📥 جلب معادلات الإنتاج (BOM) من قاعدة البيانات
+  const { data: bomsResponse } = useQuery({
+    queryKey: ['boms'],
+    queryFn: () => apiService.getData('product_boms'),
+    staleTime: 0,
+  });
+
+  const itemsList = Array.isArray(stockResponse)
+    ? stockResponse
+    : (stockResponse?.data || stockResponse?.items || []);
+
+  const bomsList = Array.isArray(bomsResponse)
+    ? bomsResponse
+    : (bomsResponse?.data || bomsResponse?.items || []);
+
+  // 🔄 تصفية الخامات بناءً على سكيما items
+  const rawMaterials = itemsList.filter(item => {
+    if (!item) return false;
+    const itemType = (item.item_type || '').toString().toLowerCase().trim();
+    const itemName = (item.name || '').toString().toLowerCase().trim();
+    return (
+      itemType === 'raw_material' || 
+      itemType === 'خامة' || 
+      itemType === 'مواد خام' ||
+      (!itemName.includes('معمول') && !itemName.includes('جاهز') && itemType !== 'product')
+    );
+  });
+
+  // 🍩 تصفية المنتجات الجاهزة والنهائية لـ زاد الخير (مثل المعمول والإنتاج التام)
+  const readyProducts = itemsList.filter(item => {
+    if (!item) return false;
+    const itemType = (item.item_type || '').toString().toLowerCase().trim();
+    const itemName = (item.name || '').toString().toLowerCase().trim();
+    return itemType === 'product' || itemName.includes('معمول') || itemName.includes('جاهز') || itemType === 'منتج جاهز';
+  });
+
+  // حالات تخزين مدخلات الكميات
+  const [ingredientsInputs, setIngredientsInputs] = useState({});
+  const [productsInputs, setProductsInputs] = useState({});
+  const [targetInputs, setTargetInputs] = useState({}); // 🎯 كميات الإنتاج المطلوبة/المستهدفة
+  
+  // 🆕 حالات شاشة إنتاج الوحدات الجديدة بالأسفل
+  const [customProductName, setCustomProductName] = useState('');
+  const [unitsToProduce, setUnitsToProduce] = useState(0);
+
+  const [formData, setFormData] = useState({
+    date: new Date().toISOString().split('T')[0],
+    shift: 'الأولى'
+  });
+
+  const shifts = ['الأولى', 'الثانية', 'السهرة', 'إضافي'];
+
+  // تهيئة قيم المدخلات فور جلب البيانات من السيرفر دون مسح مدخلات المستخدم الحالية
+  useEffect(() => {
+    if (itemsList.length > 0) {
+      setIngredientsInputs(prev => {
+        const updated = { ...prev };
+        rawMaterials.forEach(item => {
+          if (item.id && updated[item.id] === undefined) updated[item.id] = '';
+        });
+        return updated;
+      });
+
+      setProductsInputs(prev => {
+        const updated = { ...prev };
+        readyProducts.forEach(item => {
+          if (item.id && updated[item.id] === undefined) updated[item.id] = '';
+        });
+        return updated;
+      });
+
+      setTargetInputs(prev => {
+        const updated = { ...prev };
+        readyProducts.forEach(item => {
+          if (item.id && updated[item.id] === undefined) updated[item.id] = '';
+        });
+        return updated;
+      });
+    }
+  }, [stockResponse]);
+
+  const handleInputChange = (itemId, value, type) => {
+    const key = itemId.toString();
+    if (type === 'ingredients') {
+      setIngredientsInputs(prev => ({ ...prev, [key]: value }));
+    } else if (type === 'products') {
+      setProductsInputs(prev => ({ ...prev, [key]: value }));
+    } else if (type === 'targets') {
+      setTargetInputs(prev => ({ ...prev, [key]: value }));
+    }
+  };
+
+  // 🚀 الدالة الكبرى المدمجة للترحيل الذكي (BOM أو مرن)
   const handleProcessProduction = async () => {
     const timestamp = Date.now();
     let consumedItemsQueue = [];
@@ -6,7 +119,6 @@
     let totalMaterialsCost = 0;
     let targetDetailsText = "";
 
-    // التحقق من وجود البيانات الأساسية لمنع أخطاء الـ Undefined في ريأكت
     if (!itemsList || itemsList.length === 0) {
       alert("⚠️ لا توجد بيانات مخزون متاحة حالياً، يرجى تحديث الصفحة.");
       return;
@@ -17,11 +129,6 @@
       // 🛡️ المسار الأول: نظام التصنيع القياسي الصارم المستند إلى BOM
       // ----------------------------------------------------
       if (isStrictBOMMode) {
-        if (!bomsList || bomsList.length === 0) {
-          alert("⚠️ لا توجد معادلات إنتاج (BOM) مسجلة بالنظام لتشغيل هذا الوضع.");
-          return;
-        }
-
         for (const [productId, rawValue] of Object.entries(productsInputs || {})) {
           const produceQty = rawValue === '' ? 0 : parseFloat(rawValue);
           if (produceQty <= 0) continue;
@@ -37,7 +144,6 @@
             unit_price: 0 
           });
 
-          // البحث عن معادلة الإنتاج الجاهزة
           const productBom = bomsList.find(b => b.product_id.toString() === productId.toString());
           
           if (productBom && productBom.ingredients) {
@@ -83,7 +189,6 @@
       // 🔄 المسار الثاني: النظام المرن الحالي (يدوي وحر)
       // ----------------------------------------------------
       else {
-        // تجميع يدوي للمواد الخام المستهلكة
         for (const [itemId, rawValue] of Object.entries(ingredientsInputs || {})) {
           const requiredQty = rawValue === '' ? 0 : parseFloat(rawValue);
           if (requiredQty <= 0) continue;
@@ -103,7 +208,6 @@
           consumedItemsQueue.push({ item_id: stockItem.id, quantity: requiredQty, unit_price: costPrice });
         }
 
-        // تجميع يدوي للمنتجات التامة
         let totalEnteredQuantity = 0;
         for (const [itemId, rawValue] of Object.entries(productsInputs || {})) {
           const quantity = rawValue === '' ? 0 : parseFloat(rawValue);
@@ -112,7 +216,7 @@
           const stockItem = itemsList.find(s => s.id.toString() === itemId.toString());
           if (!stockItem) continue;
 
-          const targetValue = targetInputs?.[itemId] || 0;
+          const targetValue = targetInputs[itemId] || 0;
           const targetQty = targetValue === '' ? 0 : parseFloat(targetValue);
           targetDetailsText += `[${stockItem.name}: مطلوب ${targetQty} -> تم ${quantity}] `;
 
@@ -121,7 +225,7 @@
         }
 
         if (consumedItemsQueue.length === 0 && producedItemsQueue.length === 0) {
-          alert("⚠️ يرجى إدخال كميات (إما مواد خام مستهلكة أو منتجات تامة منفذة) لإتمام عملية الترحيل في الوضع المرن.");
+          alert("⚠️ يرجى إدخال كميات لإتمام عملية الترحيل في الوضع المرن.");
           return;
         }
 
@@ -135,8 +239,6 @@
       // ----------------------------------------------------
       // 🟩 ترحيل الفواتير السحابية الموحدة (Transactions)
       // ----------------------------------------------------
-      
-      // 1️⃣ إنشاء مستند صرف الخامات (sale) إذا توفرت خامات
       let saleInvoiceNumber = "N/A";
       if (consumedItemsQueue.length > 0) {
         saleInvoiceNumber = isStrictBOMMode ? `RAW-AUTO-${timestamp}` : `RAW-OUT-${timestamp}`;
@@ -150,7 +252,7 @@
           remaining_amount: 0,
           description: isStrictBOMMode 
             ? `خصم خامات تلقائي قياسي (BOM) لإنتاج: ${targetDetailsText}`
-            : `سحب خامات تشغيل إنتاج يدوي - وردية ${formData?.shift || 'عامة'} بتاريخ ${formData?.date || ''}`
+            : `سحب خامات تشغيل إنتاج يدوي - وردية ${formData.shift} بتاريخ ${formData.date}`
         });
 
         const saleInvoiceId = saleInvoiceRes?.id || saleInvoiceRes?.data?.id;
@@ -164,7 +266,6 @@
         }
       }
 
-      // 2️⃣ إنشاء مستند إيداع الإنتاج التام (purchase) إذا توفرت منتجات تامة
       let purchaseInvoiceNumber = "N/A";
       if (producedItemsQueue.length > 0) {
         purchaseInvoiceNumber = isStrictBOMMode ? `PROD-AUTO-${timestamp}` : `PROD-IN-${timestamp}`;
@@ -180,7 +281,7 @@
           remaining_amount: 0,
           description: isStrictBOMMode
             ? `إيداع آلي للمنتج التام بناءً على معادلة التصنيع المعتمدة BOM.`
-            : `إيداع خط الإنتاج التام اليدوي - وردية ${formData?.shift || 'عامة'} بتاريخ ${formData?.date || ''}`
+            : `إيداع خط الإنتاج التام اليدوي - وردية ${formData.shift} بتاريخ ${formData.date}`
         });
 
         const purchaseInvoiceId = purchaseInvoiceRes?.id || purchaseInvoiceRes?.data?.id;
@@ -194,19 +295,15 @@
         }
       }
 
-      // تحديث السيرفر لإعادة قراءة الجرد المحدث في كاش التطبيق
-      if (queryClient) {
-        await queryClient.invalidateQueries({ queryKey: ['stock'] });
-      }
+      await queryClient.invalidateQueries({ queryKey: ['stock'] });
 
       alert(isStrictBOMMode 
         ? `✅ [نظام ERP القياسي]: تم احتساب المعادلات وخصم الخامات وإيداع المنتج التام سحابياً بنجاح!`
         : `✅ [النظام المرن]: تم ترحيل كميات خط الإنتاج بنجاح!`
       );
       
-      // تفريغ الحقول التفاعلية في ريأكت بأمان
-      if (typeof setIngredientsInputs === 'function') setIngredientsInputs({});
-      if (typeof setProductsInputs === 'function') setProductsInputs({});
+      setIngredientsInputs({});
+      setProductsInputs({});
       if (onBack) onBack();
 
     } catch (error) {
@@ -214,3 +311,220 @@
       alert("🚨 فشل الترحيل السحابي، يرجى مراجعة اتصال السيرفر.");
     }
   };
+
+  // 📝 تصميم كائنات الـ CSS لضمان عدم وجود تداخل وفشل الـ build على Vercel
+  const inputStyle = {
+    width: '100%', padding: '10px 12px', borderRadius: '12px', border: '2px solid #e2e8f0',
+    fontSize: '15px', fontWeight: 'bold', textAlign: 'center', outline: 'none', color: '#1e293b', boxSizing: 'border-box'
+  };
+
+  const cardStyle = {
+    backgroundColor: '#fff', borderRadius: '24px', padding: '20px', marginBottom: '20px',
+    boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)', boxSizing: 'border-box'
+  };
+
+  const toggleContainerStyle = {
+    display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#fff',
+    padding: '15px 20px', borderRadius: '24px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+    marginBottom: '24px', gap: '16px', flexWrap: 'wrap', boxSizing: 'border-box'
+  };
+
+  return (
+    <div style={{ direction: 'rtl', padding: '24px', backgroundColor: '#f1f5f9', minHeight: '100vh', fontFamily: "'Tajawal', sans-serif", maxWidth: '1200px', margin: '0 auto', boxSizing: 'border-box' }}>
+      
+      {/* 🎛️ أولاً: لوحة التبديل السريع بداخل نفس الشاشة بالتنسيق الصافي */}
+      <div style={toggleContainerStyle}>
+        <div style={{ display: 'flex', flexDirection: 'column' }}>
+          <h2 style={{ margin: 0, fontSize: '20px', fontWeight: '700', color: '#1e293b' }}>إدارة خط الإنتاج والوردية</h2>
+          <p style={{ margin: '2px 0 0 0', fontSize: '12px', color: '#64748b' }}>اختر وضع معالجة العمليات والربط بين المخزن والتشغيل</p>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', backgroundColor: '#f8fafc', padding: '8px 16px', borderRadius: '14px', border: '1px solid #f1f5f9' }}>
+          <span style={{ fontSize: '14px', fontWeight: '700', color: '#475569' }}>نمط الاحتساب:</span>
+          <button
+            type="button"
+            onClick={() => setIsStrictBOMMode(!isStrictBOMMode)}
+            style={{
+              position: 'relative', display: 'inline-flex', height: '24px', width: '48px', alignItems: 'center',
+              borderRadius: '9999px', transition: 'background-color 0.3s', border: 'none', cursor: 'pointer', outline: 'none',
+              backgroundColor: isStrictBOMMode ? '#059669' : '#f59e0b'
+            }}
+          >
+            <span
+              style={{
+                display: 'inline-block', height: '16px', width: '16px', borderRadius: '50%', backgroundColor: '#fff',
+                boxShadow: '0 2px 4px rgba(0,0,0,0.1)', transition: 'transform 0.3s',
+                transform: isStrictBOMMode ? 'translateX(-28px)' : 'translateX(-4px)'
+              }}
+            />
+          </button>
+          <span style={{
+            fontSize: '12px', fontWeight: '900', padding: '4px 10px', borderRadius: '8px',
+            backgroundColor: isStrictBOMMode ? '#d1fae5' : '#fef3c7',
+            color: isStrictBOMMode ? '#065f46' : '#92400e'
+          }}>
+            {isStrictBOMMode ? '⚙️ معادلات BOM القياسية' : '📝 إدخال مرن يدوي'}
+          </span>
+        </div>
+      </div>
+
+      {/* ثانياً: قسم معلومات الوردية */}
+      <div style={cardStyle}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <Factory size={24} color="#4f46e5" />
+            <h3 style={{ margin: 0, color: '#1e293b', fontSize: '16px', fontWeight: '700' }}>بيانات الوردية والتشغيل الحالية</h3>
+          </div>
+          <button onClick={() => refetch()} style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '8px', cursor: 'pointer' }}>
+            <RefreshCw size={16} color="#4f46e5" className={isLoading ? "spin-animation" : ""} />
+          </button>
+        </div>
+        
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
+          <div>
+            <label style={{ display: 'block', fontSize: '12px', marginBottom: '6px', color: '#64748b', fontWeight: '600' }}><Calendar size={12} /> تاريخ الوردية</label>
+            <input type="date" value={formData.date} onChange={(e) => setFormData(p => ({...p, date: e.target.value}))} style={{ ...inputStyle, textAlign: 'right' }} />
+          </div>
+          <div>
+            <label style={{ display: 'block', fontSize: '12px', marginBottom: '6px', color: '#64748b', fontWeight: '600' }}><Clock size={12} /> الوردية الحالية</label>
+            <select value={formData.shift} onChange={(e) => setFormData(p => ({...p, shift: e.target.value}))} style={inputStyle}>
+              {shifts.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+        </div>
+      </div>
+
+      {/* ثالثاً: عرض شبكة الجداول التفاعلية المشتركة */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '24px', alignItems: 'start' }}>
+        
+        {/* 1) جدول رصد الإنتاج التام (يظهر دائماً بجميع الأنماط) */}
+        <div style={{ ...cardStyle, backgroundColor: '#1e293b', color: '#fff' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '15px', borderBottom: '1px solid #475569', paddingBottom: '10px' }}>
+            <Box size={20} color="#3b82f6" />
+            <h3 style={{ margin: 0, color: '#f8fafc', fontSize: '16px', fontWeight: '700' }}>📋 الكميات والمنتجات المنفذة فعلياً</h3>
+          </div>
+          
+          {isLoading ? (
+            <div style={{ textAlign: 'center', padding: '15px', color: '#3b82f6' }}>جاري تحميل الأصناف...</div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {readyProducts.map(product => (
+                <div key={product.id} style={{ backgroundColor: '#2d3a4f', padding: '15px', borderRadius: '18px', border: '1px solid #475569' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', borderBottom: '1px dashed #475569', paddingBottom: '8px' }}>
+                    <span style={{ fontSize: '15px', fontWeight: '700', color: '#fff' }}>{product.name}</span>
+                    <span style={{ fontSize: '11px', color: '#94a3b8' }}>الرصيد بالمخزن: {product.available_quantity || 0} وحدة</span>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '11px', color: '#94a3b8', marginBottom: '4px', textAlign: 'center' }}>🎯 الكمية المطلوبة</label>
+                      <input 
+                        type="number" 
+                        value={targetInputs[product.id] !== undefined ? targetInputs[product.id] : ''} 
+                        placeholder="المستهدف" 
+                        onChange={(e) => handleInputChange(product.id, e.target.value, 'targets')} 
+                        style={{ ...inputStyle, background: '#1e293b', color: '#f59e0b', border: '1px solid #475569', padding: '8px' }} 
+                      />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '11px', color: '#94a3b8', marginBottom: '4px', textAlign: 'center' }}>✅ الكمية المنتجة فعلياً</label>
+                      <input 
+                        type="number" 
+                        value={productsInputs[product.id] !== undefined ? productsInputs[product.id] : ''} 
+                        placeholder="المنفذ الفعلي" 
+                        onChange={(e) => handleInputChange(product.id, e.target.value, 'products')} 
+                        style={{ ...inputStyle, background: '#1e293b', color: '#10b981', border: '1px solid #475569', padding: '8px' }} 
+                      />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* 2) شق المواد الخام التفاعلي الحركي بناءً على زر التبديل */}
+        {!isStrictBOMMode ? (
+          <div style={cardStyle}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '15px', borderBottom: '1px solid #e2e8f0', paddingBottom: '10px' }}>
+              <Zap size={20} color="#f59e0b" />
+              <h3 style={{ margin: 0, color: '#1e293b', fontSize: '16px', fontWeight: '700' }}>🪵 المواد الخام المستهلكة يدوياً</h3>
+            </div>
+            {isLoading ? (
+              <div style={{ textAlign: 'center', padding: '15px', color: '#4f46e5', fontWeight: 'bold' }}>🔄 جاري فحص أرصدة المخزن...</div>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '12px' }}>
+                {rawMaterials.map(item => (
+                  <div key={item.id} style={{ background: '#f8fafc', padding: '10px', borderRadius: '15px', border: '1px solid #e2e8f0' }}>
+                    <div style={{ fontSize: '13px', fontWeight: '700', marginBottom: '6px', color: '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.name}</div>
+                    <input 
+                      type="number" 
+                      value={ingredientsInputs[item.id] !== undefined ? ingredientsInputs[item.id] : ''} 
+                      placeholder="0" 
+                      onChange={(e) => handleInputChange(item.id, e.target.value, 'ingredients')} 
+                      style={{ ...inputStyle, padding: '8px' }} 
+                    />
+                    <div style={{ fontSize: '11px', marginTop: '4px', fontWeight: '600', color: (item.available_quantity || 0) > 0 ? '#10b981' : '#ef4444', textAlign: 'center' }}>
+                      المتاح: {item.available_quantity || 0}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        ) : (
+          <div style={{ ...cardStyle, background: 'linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%)', border: '2px dashed #a7f3d0', textAlign: 'center', padding: '32px 20px' }}>
+            <div style={{ width: '56px', height: '56px', borderRadius: '50%', backgroundColor: '#d1fae5', color: '#065f46', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '24px', margin: '0 auto 16px auto' }}>⚙️</div>
+            <h4 style={{ margin: '0 0 6px 0', color: '#064e3b', fontSize: '16px', fontWeight: '700' }}>الربط الآلي للمخازن نشط</h4>
+            <p style={{ margin: 0, fontSize: '13px', color: '#047857', lineHeight: '1.6', maxWidth: '480px', margin: '0 auto' }}>
+              لقد قمت بتفعيل نظام الشركات الكبرى الصارم. لا داعي لهدر وقت العمال في رصد واحتساب كميات الدقيق، السكر أو العجوة يدوياً. بمجرد ضغط حفظ، سيقوم تطبيق <span style={{ fontWeight: '700' }}>زاد الخير</span> بسحب واحتساب المواد الخام من جرد المخزن تلقائياً خلف الكواليس بناءً على معادلات الـ BOM.
+            </p>
+          </div>
+        )}
+
+        {/* 3) شاشة الإنتاج الإضافية للوحدات المخصصة */}
+        <div style={{ ...cardStyle, border: '2px solid #e2e8f0' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '15px' }}>
+            <PackagePlus size={22} color="#4f46e5" />
+            <h3 style={{ margin: 0, color: '#1e293b', fontSize: '16px', fontWeight: '700' }}>🎯 شاشة تشغيل وإنتاج الوحدات المطلوبة</h3>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
+            <div>
+              <label style={{ display: 'block', fontSize: '12px', marginBottom: '6px', color: '#64748b', fontWeight: '600' }}>اسم المنتج المطلوب إنتاجه</label>
+              <input 
+                type="text" 
+                placeholder="مثال: معمول الفاخر" 
+                value={customProductName} 
+                onChange={(e) => setCustomProductName(e.target.value)} 
+                style={{ ...inputStyle, textAlign: 'right', fontWeight: 'normal' }} 
+              />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: '12px', marginBottom: '6px', color: '#64748b', fontWeight: '600' }}>عدد الوحدات المراد إنتاجها</label>
+              <input 
+                type="number" 
+                placeholder="0" 
+                value={unitsToProduce || ''} 
+                onChange={(e) => setUnitsToProduce(e.target.value)} 
+                style={inputStyle} 
+              />
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      {/* زر الحفظ والترحيل النهائي */}
+      <button 
+        onClick={handleProcessProduction} 
+        style={{ width: '100%', padding: '16px', background: '#10b981', color: '#fff', border: 'none', borderRadius: '15px', fontWeight: 'bold', fontSize: '16px', marginTop: '24px', marginBottom: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', boxShadow: '0 4px 12px rgba(16, 185, 129, 0.2)' }}
+      >
+        <Save size={18} /> ترحيل وإنتاج العمليات المترابطة وتفعيل الـ Trigger
+      </button>
+
+      {/* زر العودة للشاشة السابقة */}
+      <button onClick={onBack} style={{ width: '100%', background: '#fff', border: '1px solid #cbd5e1', padding: '14px', borderRadius: '15px', color: '#64748b', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}><ArrowLeft size={16} /> العودة للشاشة السابقة</button>
+    </div>
+  );
+};
+
+export default ProductionManager;
