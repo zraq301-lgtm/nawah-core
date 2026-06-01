@@ -1,4 +1,4 @@
-name: ERP React Analyzer (Java Powered)
+   name: ERP React Analyzer (Java Powered)
 
 on:
   push:
@@ -33,13 +33,13 @@ jobs:
           node-version: 20
           cache: 'npm'
 
-      # 4. تثبيت الحزم وتحديث ملف القفل (تغيير من npm ci إلى npm install لتحديث التضاربات)
+      # 4. تثبيت الحزم وتحديث ملف القفل تلقائياً
       - name: Install Dependencies, Update Lockfile & Type Check
         run: |
           npm install
           npm run build --if-present
 
-      # 5. تشغيل الفحص وتصدير النتيجة إلى ملف JSON
+      # 5. تشغيل الفحص وتصدر النتيجة إلى ملف JSON
       - name: Run ESLint and Export JSON
         run: |
           npx eslint "src/**/*.{ts,tsx,js,jsx}" --format json --output-file eslint-report.json || true
@@ -47,7 +47,6 @@ jobs:
       # 6. كتابة وتشغيل سكربت الجافا لتحليل أخطاء نقل البيانات والـ Bugs
       - name: Compile and Run Java Analyzer
         run: |
-          # كتابة كود الجافا مباشرة داخل ملف مؤقت
           cat << 'EOF' > Analyzer.java
           import java.io.File;
           import java.nio.file.Files;
@@ -71,7 +70,6 @@ jobs:
                       StringBuilder summary = new StringBuilder();
                       summary.append("## 📊 تقرير جافا الدقيق لتحليل بيانات الـ ERP:\n---\n");
 
-                      // ريجكس (Regex) بسيط وقوي لتحليل الـ JSON الخاص بـ ESLint بدون مكتبات خارجية
                       Pattern filePattern = Pattern.compile("\\{\"filePath\":\"(.*?)\",\"messages\":\\[(.*?)\\]");
                       Matcher fileMatcher = filePattern.matcher(jsonContent);
 
@@ -81,7 +79,6 @@ jobs:
                           String filePath = fileMatcher.group(1);
                           String messagesBlock = fileMatcher.group(2);
 
-                          // تنظيف مسار الملف ليظهر من مجلد src فقط
                           if (filePath.contains("src/")) {
                               filePath = "src/" + filePath.split("src/")[1];
                           }
@@ -90,7 +87,6 @@ jobs:
                               StringBuilder fileLog = new StringBuilder();
                               fileLog.append("### 📄 ملف: `").append(filePath).append("`\n");
                               
-                              // تحليل كل رسالة خطأ داخل الملف
                               Pattern msgPattern = Pattern.compile("\\{\"ruleId\":\"(.*?)\",\"severity\":(\\d),\"message\":\"(.*?)\",\"line\":(\\d+)");
                               Matcher msgMatcher = msgPattern.matcher(messagesBlock);
                               
@@ -125,10 +121,8 @@ jobs:
                                  .append(") أخطاء حرجة في نقل واستدعاء البيانات يجب إصلاحها أولاً.**\n");
                       }
 
-                      // كتابة السجل النهائي لـ GitHub Summary
                       Files.write(Paths.get(summaryPath), summary.toString().getBytes(), StandardOpenOption.APPEND);
 
-                      // إذا كان هناك أخطاء حرجة، نجعل السكربت يفشل لإيقاف الـ Action
                       if (totalBugs > 0) {
                           System.exit(1);
                       }
@@ -141,7 +135,6 @@ jobs:
           }
           EOF
           
-          // تشغيل كود الجافا فورا
           java Analyzer.java
 
       # 7. تحديث ونقل ملف القفل المحدث مباشرة وتلقائياً إلى جيت هب في حال نجاح الفحص
@@ -151,10 +144,9 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add package-lock.json
-          # التحقق من وجود تغييرات فعلية لتفادي فشل الأكشن إذا كان الملف متزامناً بالفعل
           if ! git diff --cached --quiet; then
             git commit -m "chore: automated package-lock.json synchronization"
             git push origin HEAD:${{ github.ref_name }}
           else
             echo "ملف القفل متطابق ومتزامن بالفعل، لا حاجة للرفع."
-          fi
+          fi                 
