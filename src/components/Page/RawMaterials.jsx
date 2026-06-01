@@ -1,10 +1,11 @@
-// src/components/RawMaterials.jsx
+// src/components/Page/RawMaterials.jsx
 import React, { useState } from 'react';
 import { Trash2, Layers, Package, BarChart3, AlertTriangle, Barcode, ShoppingCart, Search, RefreshCw } from 'lucide-react';
 
 // 🚀 استيراد أدوات إدارة الكاش والمزامنة السحابية الفورية
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { apiService } from '../services/apiService';
+// 🛠️ تم تصحيح المسار هنا بالخروج خطوتين للأعلى للوصول إلى مجلد src الرئيسي
+import { apiService } from '../../services/apiService';
 
 const RawMaterials = ({ onDeleteItem, onSelectForPurchase }) => {
   const queryClient = useQueryClient(); // محرك إنعاش الكاش عند الحذف أو التعديل
@@ -17,18 +18,17 @@ const RawMaterials = ({ onDeleteItem, onSelectForPurchase }) => {
     staleTime: 1000 * 60 * 2, // كاش طازج لمدة دقيقتين
   });
 
-  // 🛡️ حزام أمان لاستخراج المصفوفة الصافية سواء كانت قادمة مباشرة أو مغلفة داخل كائن data
+  // 🛡️ حزام أمان لاستخراج مصفوفة البيانات بشكل مستقر وسلس
   const itemsList = Array.isArray(stockData) 
     ? stockData 
     : (stockData?.data || stockData?.items || []);
 
-  // 🔄 تصفية وعزل الخامات فقط (استبعاد المنتجات النهائية كالمعمول والجاهز) بناءً على حقل الاسم والنوع
+  // 🔄 تصفية وعزل الخامات فقط بناءً على حقل الاسم والنوع
   const rawData = itemsList.filter(item => {
     if (!item) return false;
     const itemName = (item.name || '').toString().toLowerCase();
     const itemType = (item.item_type || item.type || item.category || '').toString().toLowerCase();
     
-    // استبعاد لو كان منتج نهائي
     return !(
       itemType === 'product' || 
       itemType === 'منتج نهائي' || 
@@ -44,12 +44,10 @@ const RawMaterials = ({ onDeleteItem, onSelectForPurchase }) => {
     (item.barcode || '').includes(searchTerm)
   );
 
-  // دالة الحذف المعززة بإنعاش الكاش الفوري
   const handleDelete = async (id, name) => {
     if (window.confirm(`هل أنت متأكد من حذف خامة: ${name} من شجرة المخازن؟`)) {
       if (onDeleteItem) {
         await onDeleteItem(id);
-        // كسر الكاش وإجبار السيرفر على جلب قائمة جرد جديدة
         await queryClient.invalidateQueries({ queryKey: ['stock'] });
       }
     }
@@ -109,7 +107,6 @@ const RawMaterials = ({ onDeleteItem, onSelectForPurchase }) => {
                 transition: 'transform 0.2s'
               }}
             >
-              {/* السطر الأول: اسم الخامة + الباركود + أزرار التحكم */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -150,14 +147,12 @@ const RawMaterials = ({ onDeleteItem, onSelectForPurchase }) => {
                   <button 
                     onClick={() => handleDelete(currentId, itemName)} 
                     style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                    title="حذف الخامة من المخزن"
                   >
                     <Trash2 size={18} color="#ef4444" style={{ opacity: 0.8 }} />
                   </button>
                 </div>
               </div>
 
-              {/* مؤشر مرئي في حالة انخفاض المخزون */}
               {isLowStock && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#b91c1c', fontSize: '0.75rem', marginBottom: '10px', background: '#fef2f2', padding: '4px 8px', borderRadius: '6px', width: 'fit-content' }}>
                   <AlertTriangle size={12} />
@@ -165,9 +160,7 @@ const RawMaterials = ({ onDeleteItem, onSelectForPurchase }) => {
                 </div>
               )}
 
-              {/* السطر الثاني: الكميات والأسعار المتزامنة بالكامل */}
               <div style={{ display: 'flex', gap: '10px', marginTop: '5px' }}>
-                
                 <div style={{ 
                   flex: 1, 
                   background: isLowStock ? 'rgba(239, 68, 68, 0.05)' : 'rgba(79, 70, 229, 0.03)', 
@@ -199,7 +192,6 @@ const RawMaterials = ({ onDeleteItem, onSelectForPurchase }) => {
                     {costPrice} <span style={{ fontSize: '0.75rem', fontWeight: 'normal', color: '#64748b' }}>ج.م</span>
                   </span>
                 </div>
-
               </div>
 
             </div>
