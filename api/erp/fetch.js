@@ -2,7 +2,7 @@
 import postgres from 'postgres';
 
 export default async function handler(req, res) {
-  // 🛡️ تفعيل حماية وتخطي الـ CORS الكاملة للأندرويد والمحاكيات
+  // 🛡️ تفعيل حماية وتخطي الـ CORS الكاملة لتطبيقات الموبايل (Capacitor) والمحاكيات
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
@@ -15,88 +15,54 @@ export default async function handler(req, res) {
     return res.status(405).json({ success: false, error: 'الطريقة غير مسموح بها، استخدم GET' });
   }
 
-  const { schema, table } = req.query;
+  let { schema, table } = req.query;
 
   if (!schema || !table) {
     return res.status(400).json({ 
       success: false, 
-      error: 'المعطيات المرسلة ناقصة، المعيار يتطلب إرسال (schema و table)' 
+      error: 'المعطيات المرسلة ناقصة، يتطلب إرسال (schema و table)' 
     });
   }
 
-  // 🔌 تهيئة اتصال قاعدة البيانات واستخدام معايير الحديثة للـ WHATWG URL لمنع التنبيهات
+  // 🔌 تهيئة اتصال قاعدة بيانات Neon مع تأمين تدوير الاتصالات (Connection Pooling)
   let sql;
   try {
-    const dbUrl = new URL(process.env.DATABASE_URL);
-    sql = postgres({
-      host: dbUrl.hostname,
-      port: dbUrl.port || 5432,
-      database: dbUrl.pathname.replace('/', ''),
-      username: dbUrl.username,
-      password: dbUrl.password,
-      ssl: 'require',
-      onnotice: () => {} // 🔕 كتم التنبيهات والإشعارات الداخلية (Notices) لعدم تشتيت المحرك لـ catch
-    });
-  } catch (urlErr) {
     sql = postgres(process.env.DATABASE_URL, { 
       ssl: 'require',
-      onnotice: () => {} // 🔕 كتم التنبيهات هنا أيضاً
+      max: 10, // الحد الأقصى للاتصالات المتزامنة لمنع تعليق السيرفر
+      idle_timeout: 20, // إغلاق الاتصالات الخاملة بعد 20 ثانية
+      onnotice: () => {} // 🔕 كتم التنبيهات والإشعارات الداخلية لـ Postgres
     });
+  } catch (dbErr) {
+    console.error('❌ فشل تأسيس الاتصال بقاعدة البيانات لـ Neon:', dbErr.message);
+    return res.status(500).json({ success: false, error: 'فشل الاتصال الخارجي بقاعدة البيانات' });
   }
 
   try {
+    // تنظيف الحقول وتأمينها ضد الـ SQL Injection
     const safeSchema = String(schema).trim().toLowerCase().replace(/[^a-z0-9_]/g, '');
-    const safeTable = String(table).trim().toLowerCase().replace(/[^a-z0-9_]/g, '');
+    let safeTable = String(table).trim().toLowerCase().replace(/[^a-z0-9_]/g, '');
+
+    // 🔄 الجسر الذكي لـ زاد الخير: لو الفرونت إند طلب جدول stock، نقوم بتحويله لـ items ليتطابق مع السكيما
+    if (safeTable === 'stock') {
+      safeTable = 'items';
+    }
 
     if (!safeSchema || !safeTable) {
       return res.status(400).json({ 
         success: false, 
-        error: 'أسماء الجداول أو بيئة العمل غير صالحة بعد التنظيف والتأمين' 
+        error: 'اسم الجدول أو بيئة العمل غير صالحة بعد التنظيف والتأمين' 
       });
     }
 
-    // 🏗️ المحرك التلقائي التأسيسي المعزول داخل بلوك مستقل تماماً
-    try {
-      await sql.unsafe(`CREATE SCHEMA IF NOT EXISTS ${safeSchema}`);
-
-      if (safeTable === 'stock') {
-        await sql.unsafe(`
-          CREATE TABLE IF NOT EXISTS ${safeSchema}.stock (
-            id SERIAL PRIMARY KEY,
-            name VARCHAR(255) NOT NULL UNIQUE,
-            unit VARCHAR(50),
-            balance NUMERIC DEFAULT 0,
-            price NUMERIC DEFAULT 0,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-          )
-        `);
-      }
-
-      if (safeTable === 'contacts') {
-        await sql.unsafe(`
-          CREATE TABLE IF NOT EXISTS ${safeSchema}.contacts (
-            id SERIAL PRIMARY KEY,
-            contact_id BIGINT UNIQUE,
-            name VARCHAR(255) NOT NULL,
-            phone VARCHAR(50),
-            address TEXT,
-            type VARCHAR(50) DEFAULT 'customer',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-          )
-        `);
-      }
-    } catch (migrationError) {
-      // طباعة خطأ التأسيس في الكونسول الخلفي فقط دون مقاطعة طلب العميل
-      console.warn('⚠️ تنبيه محرك التأسيس التلقائي:', migrationError.message);
-    }
-
-    // 🚀 الاستعلام السحابي الحقيقي لجلب البيانات الفعلية المخزنة
+    // 🚀 الاستعلام السحابي المحترف والديناميكي لجلب جميع البيانات من أي جدول
+    // تم استخدام المعرفات الديناميكية لـ postgres لضمان جلب البيانات بنجاح من Neon
     const dbResult = await sql`
-      SELECT * FROM ${sql(safeSchema)}.${sql(safeTable)}
+      SELECT * FROM ${sql(safeSchema + '.' + safeTable)}
       ORDER BY id DESC
     `;
 
-    // 🧠 تقسيم جهات الاتصال وفرزها ديناميكياً لتغذية الفرونت إند
+    // 🧠 [1] في حال كان الجدول المطلوب هو الجهات (contacts) - نقوم بالفرز والتفكيك الذكي
     if (safeTable === 'contacts') {
       const customers = dbResult.filter(item => item.type === 'customer' || item.type === 'general');
       const suppliers = dbResult.filter(item => item.type === 'supplier');
@@ -104,10 +70,10 @@ export default async function handler(req, res) {
 
       return res.status(200).json({ 
         success: true, 
-        table: safeTable,
+        table: table, // نرجع الاسم الأصلي المطلب للفرونت لعدم كسر الأب والـ QueryKey
         schema: safeSchema,
         data: dbResult, 
-        categorized: {  
+        categorized: { 
           customers,
           suppliers,
           employees
@@ -115,21 +81,37 @@ export default async function handler(req, res) {
       });
     }
 
+    // 📦 [2] لباقي الجداول (items, invoices, accounts, hr_attendance, system_logs)
+    // يعود بالمصفوفة الصافية والكاملة فوراً وبأعلى أداء لشاشة الموبايل
     return res.status(200).json({ 
       success: true, 
-      table: safeTable,
+      table: table,
       schema: safeSchema,
       data: dbResult 
     });
 
   } catch (error) {
-    console.error(`❌ خطأ حرج حقيقي أثناء معالجة جدول ${table}:`, error.message);
+    console.error(`❌ خطأ حرج حقيقي أثناء جلب جدول [${table}]:`, error.message);
     
+    // حزام أمان ذكي: إذا كان الخطأ هو عدم وجود الجدول في قاعدة البيانات بعد، نرجع مصفوفة فارغة بدلاً من كسر الفرونت إند
+    if (error.message.includes('does not exist')) {
+      return res.status(200).json({
+        success: true,
+        table: table,
+        schema: schema,
+        data: [],
+        message: 'الجدول فارغ أو لم يتم إنشاؤه بعد في هذه السكيما'
+      });
+    }
+
     return res.status(500).json({
       success: false,
-      error: "حدث خطأ في السيرفر أثناء معالجة البيانات، يرجى المحاولة لاحقاً"
+      error: `حدث خطأ في السيرفر أثناء جلب البيانات: ${error.message}`
     });
   } finally {
-    if (sql) await sql.end({ timeout: 0.5 });
+    // 🔒 إغلاق الاتصال بأمان بعد انتهاء الطلب فوراً للحفاظ على حزمة Neon المجانية/المدفوعة
+    if (sql) {
+      await sql.end({ timeout: 0.5 });
+    }
   }
 }
