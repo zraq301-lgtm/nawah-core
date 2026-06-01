@@ -1,6 +1,5 @@
-// src/components/ProductionManager.jsx
 import React, { useState, useEffect } from 'react';
-import { Factory, Save, ArrowLeft, Box, Calendar, Clock, Zap, RefreshCw } from 'lucide-react';
+import { Factory, Save, ArrowLeft, Box, Calendar, Clock, Zap, RefreshCw, Layers } from 'lucide-react';
 
 // 🚀 إدارة الكاش والمزامنة الفورية لـ زاد الخير
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -9,7 +8,7 @@ import { apiService } from '../services/apiService';
 const ProductionManager = ({ onBack }) => {
   const queryClient = useQueryClient();
 
-  // 📥 جلب بيانات جدول الأصناف (items) من السكيما للحصول على الـ id والأسعار والكميات الحالية
+  // 📥 جلب بيانات جدول الأصناف (items) من السكيما
   const { data: stockResponse, isLoading, refetch } = useQuery({
     queryKey: ['stock'],
     queryFn: () => apiService.getData('stock'),
@@ -33,7 +32,7 @@ const ProductionManager = ({ onBack }) => {
     );
   });
 
-  // 🍩 تصفية المنتجات الجاهزة والنهائية لـ زاد الخير (مثل المعمول والإنتاج التام)
+  // 🍩 تصفية المنتجات الجاهزة والنهائية لـ زاد الخير
   const readyProducts = itemsList.filter(item => {
     if (!item) return false;
     const itemType = (item.item_type || '').toString().toLowerCase().trim();
@@ -41,10 +40,12 @@ const ProductionManager = ({ onBack }) => {
     return itemType === 'product' || itemName.includes('معمول') || itemName.includes('جاهز') || itemType === 'منتج جاهز';
   });
 
-  // حالات تخزين مدخلات الكميات (مربوطة بـ ID الصنف مباشرة لمنع التداخل)
+  // حالات تخزين مدخلات الكميات (الحل الجذري لمشكلة عدم القراءة الظاهرة بالصورة)
   const [ingredientsInputs, setIngredientsInputs] = useState({});
-  const [productsInputs, setProductsInputs] = useState({});
-  const [targetInputs, setTargetInputs] = useState({}); // 🎯 كميات الإنتاج المطلوبة/المستهدفة
+  
+  // شاشة خطة الإنتاج المحددة بالأسفل
+  const [selectedProductId, setSelectedProductId] = useState('');
+  const [requiredUnits, setRequiredUnits] = useState('');
   
   const [formData, setFormData] = useState({
     date: new Date().toISOString().split('T')[0],
@@ -53,67 +54,64 @@ const ProductionManager = ({ onBack }) => {
 
   const shifts = ['الأولى', 'الثانية', 'السهرة', 'إضافي'];
 
-  // تهيئة قيم المدخلات فور جلب البيانات من السيرفر دون مسح مدخلات المستخدم الحالية
+  // تعيين المنتج الأول تلقائياً في القائمة المنسدلة عند تحميل البيانات
   useEffect(() => {
-    if (itemsList.length > 0) {
-      setIngredientsInputs(prev => {
-        const updated = { ...prev };
-        rawMaterials.forEach(item => {
-          if (item.id && updated[item.id] === undefined) updated[item.id] = 0;
-        });
-        return updated;
-      });
-
-      setProductsInputs(prev => {
-        const updated = { ...prev };
-        readyProducts.forEach(item => {
-          if (item.id && updated[item.id] === undefined) updated[item.id] = 0;
-        });
-        return updated;
-      });
-
-      setTargetInputs(prev => {
-        const updated = { ...prev };
-        readyProducts.forEach(item => {
-          if (item.id && updated[item.id] === undefined) updated[item.id] = 0;
-        });
-        return updated;
-      });
+    if (readyProducts.length > 0 && !selectedProductId) {
+      setSelectedProductId(readyProducts[0].id.toString());
     }
   }, [stockResponse]);
 
-  const handleInputChange = (itemId, value, type) => {
-    const numValue = value === '' ? 0 : parseFloat(value);
-    if (type === 'ingredients') {
-      setIngredientsInputs(prev => ({ ...prev, [itemId]: numValue }));
-    } else if (type === 'products') {
-      setProductsInputs(prev => ({ ...prev, [itemId]: numValue }));
-    } else if (type === 'targets') {
-      setTargetInputs(prev => ({ ...prev, [itemId]: numValue }));
-    }
+  // دالة التعامل مع تغيير قيم المواد الخام بدقة
+  const handleRawInputChange = (itemId, value) => {
+    setIngredientsInputs(prev => ({
+      ...prev,
+      [itemId]: value === '' ? '' : parseFloat(value)
+    }));
   };
 
-  // 🚀 العملية الكبرى: تشغيل السحب والإنتاج التلقائي المتوافق مع الـ Trigger
+  // 🚀 زر الحفظ والترحيل الرئيسي المرتبط بالشاشة السفلية وحسابات المخزن
   const handleProcessProduction = async () => {
     const timestamp = Date.now();
     const consumedItemsQueue = [];
-    const producedItemsQueue = [];
     let totalMaterialsCost = 0;
-    let targetDetailsText = ""; // لتوثيق الكميات المستهدفة في الوصف
 
-    // 1️⃣ تجميع المواد الخام المستهلكة (لعمل فاتورة سحب من نوع sale)
-    for (const [itemId, requiredQty] of Object.entries(ingredientsInputs)) {
-      if (requiredQty <= 0) continue;
-      
+    // 1️⃣ الفحص الأمني للمدخلات (تم إصلاح الثغرة السابقة)
+    const activeMaterialsEntries = Object.entries(ingredientsInputs).filter(([_, qty]) => qty > 0);
+    
+    if (activeMaterialsEntries.length === 0) {
+      alert("⚠️ يرجى إدخال كمية مادة خام واحدة على الأقل في الحقول المخصصة بالأعلى لبدء التشغيل.");
+      return;
+    }
+
+    if (!selectedProductId) {
+      alert("⚠️ يرجى اختيار نوع المنتج المطلوب إنتاجه من الشاشة بالأسفل.");
+      return;
+    }
+
+    const unitsToProduce = parseFloat(requiredUnits);
+    if (!unitsToProduce || unitsToProduce <= 0) {
+      alert("⚠️ يرجى تحديد عدد الوحدات المطلوب إنتاجها في الشاشة بالأسفل.");
+      return;
+    }
+
+    // الحصول على بيانات المنتج المختار للإنتاج
+    const targetProduct = readyProducts.find(p => p.id === parseInt(selectedProductId));
+    if (!targetProduct) {
+      alert("⚠️ المنتج المختار غير موجود بالسكيما.");
+      return;
+    }
+
+    // 2️⃣ احتساب الكميات المستهلكة من المواد الخام ومراجعة أرصدة المخزن
+    for (const [itemId, requiredQty] of activeMaterialsEntries) {
       const stockItem = itemsList.find(s => s.id === parseInt(itemId));
       if (!stockItem) continue;
 
       const availableQty = parseFloat(stockItem.available_quantity || 0);
       const costPrice = parseFloat(stockItem.cost_price || 0);
 
-      // حزام الأمان ضد عجز الرصيد
+      // حزام أمان صارم ضد العجز
       if (availableQty < requiredQty) {
-        alert(`⚠️ عجز في المادة الخام: ${stockItem.name}\nالمطلوب: ${requiredQty} | المتوفر بالمخزن: ${availableQty}`);
+        alert(`⚠️ عجز في رصيد المخزن للمادة: ${stockItem.name}\nالمطلوب للتشغيل: ${requiredQty} | المتاح فعلياً: ${availableQty}`);
         return;
       }
 
@@ -121,48 +119,17 @@ const ProductionManager = ({ onBack }) => {
 
       consumedItemsQueue.push({
         item_id: stockItem.id,
+        name: stockItem.name,
         quantity: requiredQty,
         unit_price: costPrice
       });
     }
 
-    if (consumedItemsQueue.length === 0) {
-      alert("⚠️ يرجى تحديد مادة خام واحدة على الأقل واستهلاك كمية منها لبدء التشغيل.");
-      return;
-    }
-
-    // 2️⃣ تجميع المنتجات التامة التي تم إضافة كمية إنتاج لها فعلياً
-    let totalProducedUnits = 0;
-    for (const [itemId, quantity] of Object.entries(productsInputs)) {
-      if (quantity <= 0) continue;
-
-      const stockItem = itemsList.find(s => s.id === parseInt(itemId));
-      if (!stockItem) continue;
-
-      const targetQty = targetInputs[itemId] || 0;
-      targetDetailsText += `[${stockItem.name}: مطلوب ${targetQty} -> تم ${quantity}] `;
-
-      totalProducedUnits += quantity;
-      producedItemsQueue.push({
-        item_id: stockItem.id,
-        quantity: quantity,
-        unit_price: 0 // سيتم احتسابه بالتناسب من التكلفة الإجمالية
-      });
-    }
-
-    if (producedItemsQueue.length === 0) {
-      alert("⚠️ لم يتم إدخال أي كميات إنتاج! يرجى كتابة عدد الوحدات المنتجة أمام الصنف الخاص بها.");
-      return;
-    }
-
-    // حساب توزيع نصيب التكلفة الصافية على الوحدات المنتجة
-    const costPerUnit = totalMaterialsCost / totalProducedUnits;
-    producedItemsQueue.forEach(p => {
-      p.unit_price = parseFloat(costPerUnit.toFixed(2));
-    });
+    // حساب تكلفة الوحدة الواحدة من المنتج بناءً على الخامات الفعلية المستهلكة
+    const costPerUnit = totalMaterialsCost / unitsToProduce;
 
     try {
-      // 🟩 الخطوة الأولى: إنشاء فاتورة السحب (sale) لتشغيل الـ Trigger وخفض أرصدة الخامات
+      // 🟩 الخطوة الأولى: إنشاء فاتورة السحب (sale) لخفض كميات الخامات المستهلكة فقط (والباقي يظل بالمخزن)
       const saleInvoiceNumber = `RAW-OUT-${timestamp}`;
       const saleInvoiceRes = await apiService.postData('invoices', {
         invoice_number: saleInvoiceNumber,
@@ -172,7 +139,7 @@ const ProductionManager = ({ onBack }) => {
         net_amount: totalMaterialsCost,
         paid_amount: totalMaterialsCost,
         remaining_amount: 0,
-        description: `سحب خامات تشغيل إنتاج - وردية ${formData.shift} بتاريخ ${formData.date} | تفاصيل خطة الإنتاج المستهدفة: ${targetDetailsText}`
+        description: `سحب خامات لإنتاج [${unitsToProduce} وحدة] من [${targetProduct.name}] - وردية ${formData.shift}`
       });
 
       const saleInvoiceId = saleInvoiceRes?.id || saleInvoiceRes?.data?.id;
@@ -186,7 +153,7 @@ const ProductionManager = ({ onBack }) => {
         });
       }
 
-      // 🟩 الخطوة الثانية: إنشاء فاتورة الإدخال (purchase) لتشغيل الـ Trigger وزيادة أرصدة المنتجات التامة
+      // 🟩 الخطوة الثانية: إنشاء فاتورة الإدخال (purchase) لزيادة رصيد المنتج المنتج المحدد بالأسفل
       const purchaseInvoiceNumber = `PROD-IN-${timestamp}`;
       const purchaseInvoiceRes = await apiService.postData('invoices', {
         invoice_number: purchaseInvoiceNumber,
@@ -196,24 +163,26 @@ const ProductionManager = ({ onBack }) => {
         net_amount: totalMaterialsCost,
         paid_amount: totalMaterialsCost,
         remaining_amount: 0,
-        description: `إيداع خط الإنتاج التام - وردية ${formData.shift} بتاريخ ${formData.date} | المستهدف والفعلي: ${targetDetailsText}`
+        description: `إيداع كمية الإنتاج التام لـ [${targetProduct.name}] بعدد [${unitsToProduce} وحدة] - التكلفة محسوبة بدقة`
       });
 
       const purchaseInvoiceId = purchaseInvoiceRes?.id || purchaseInvoiceRes?.data?.id;
 
-      for (const prodItem of producedItemsQueue) {
-        await apiService.postData('invoice_items', {
-          invoice_id: purchaseInvoiceId,
-          item_id: prodItem.item_id,
-          quantity: prodItem.quantity,
-          unit_price: prodItem.unit_price
-        });
-      }
+      await apiService.postData('invoice_items', {
+        invoice_id: purchaseInvoiceId,
+        item_id: targetProduct.id,
+        quantity: unitsToProduce,
+        unit_price: parseFloat(costPerUnit.toFixed(2))
+      });
 
-      // 🔄 تنظيف وتحديث كاش النظام لقراءة الجرد الجديد فوراً
+      // 🔄 تحديث كاش النظام وقراءة الجرد الفوري
       await queryClient.invalidateQueries({ queryKey: ['stock'] });
 
-      alert(`✅ تم الإنتاج والترحيل بنجاح!\n• تم سحب الخامات تلقائياً بالفاتورة رقم: ${saleInvoiceNumber}\n• تم زيادة المنتجات الجاهزة بالفاتورة رقم: ${purchaseInvoiceNumber}\n• متوسط تكلفة الوحدة المنتجة: ${costPerUnit.toFixed(2)} ج.م`);
+      alert(`✅ تم الإنتاج بنجاح مذهل!\n• المنتج النهائي: ${targetProduct.name}\n• الكمية المضافة للمخزن: ${unitsToProduce} وحدة\n• تم سحب الخامات بدقة وتثبيت الباقي في المخزن.\n• تكلفة الوحدة الصافية: ${costPerUnit.toFixed(2)} ج.م`);
+      
+      // تفريغ الحقول بعد النجاح
+      setIngredientsInputs({});
+      setRequiredUnits('');
       
       if (onBack) onBack();
 
@@ -224,8 +193,8 @@ const ProductionManager = ({ onBack }) => {
   };
 
   const inputStyle = {
-    width: '100%', padding: '10px 12px', borderRadius: '12px', border: '2px solid #e2e8f0',
-    fontSize: '15px', fontWeight: 'bold', textAlign: 'center', outline: 'none', color: '#1e293b', boxSizing: 'border-box'
+    width: '100%', padding: '12px', borderRadius: '12px', border: '2px solid #e2e8f0',
+    fontSize: '16px', fontWeight: 'bold', textAlign: 'center', outline: 'none', color: '#1e293b', boxSizing: 'border-box'
   };
 
   const cardStyle = {
@@ -241,7 +210,7 @@ const ProductionManager = ({ onBack }) => {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <Factory size={26} color="#4f46e5" />
-            <h2 style={{ margin: 0, color: '#1e293b', fontSize: '20px', fontWeight: '700' }}>لوحة الإنتاج والمزامنة مع السكيما</h2>
+            <h2 style={{ margin: 0, color: '#1e293b', fontSize: '18px', fontWeight: '700' }}>لوحة إنتاج زاد الخير الذكية</h2>
           </div>
           <button onClick={() => refetch()} style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '8px', cursor: 'pointer' }}>
             <RefreshCw size={16} color="#4f46e5" className={isLoading ? "spin-animation" : ""} />
@@ -251,22 +220,22 @@ const ProductionManager = ({ onBack }) => {
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
           <div>
             <label style={{ display: 'block', fontSize: '12px', marginBottom: '6px', color: '#64748b', fontWeight: '600' }}><Calendar size={12} /> تاريخ الوردية</label>
-            <input type="date" value={formData.date} onChange={(e) => setFormData(p => ({...p, date: e.target.value}))} style={{ ...inputStyle, textAlign: 'right' }} />
+            <input type="date" value={formData.date} onChange={(e) => setFormData(p => ({...p, date: e.target.value}))} style={{ ...inputStyle, textAlign: 'right', padding: '8px' }} />
           </div>
           <div>
-            <label style={{ display: 'block', fontSize: '12px', marginBottom: '6px', color: '#64748b', fontWeight: '600' }}><Clock size={12} /> الوردية الحالية</label>
-            <select value={formData.shift} onChange={(e) => setFormData(p => ({...p, shift: e.target.value}))} style={inputStyle}>
+            <label style={{ display: 'block', fontSize: '12px', marginBottom: '6px', color: '#64748b', fontWeight: '600' }}><Clock size={12} /> الوردية</label>
+            <select value={formData.shift} onChange={(e) => setFormData(p => ({...p, shift: e.target.value}))} style={{ ...inputStyle, padding: '8px' }}>
               {shifts.map(s => <option key={s} value={s}>{s}</option>)}
             </select>
           </div>
         </div>
       </div>
 
-      {/* قسم المواد الخام المستهلكة */}
+      {/* قسم المواد الخام المستهلكة بالأعلى */}
       <div style={cardStyle}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '15px' }}>
           <Zap size={20} color="#f59e0b" />
-          <h3 style={{ margin: 0, color: '#475569', fontSize: '15px', fontWeight: '700' }}>كميات المواد الخام المستهلكة (للسحب)</h3>
+          <h3 style={{ margin: 0, color: '#475569', fontSize: '15px', fontWeight: '700' }}>1️⃣ أدخل كميات المواد الخام المستخدمة فعلياً</h3>
         </div>
         
         {isLoading ? (
@@ -280,11 +249,11 @@ const ProductionManager = ({ onBack }) => {
                   type="number" 
                   value={ingredientsInputs[item.id] || ''} 
                   placeholder="0" 
-                  onChange={(e) => handleInputChange(item.id, e.target.value, 'ingredients')} 
-                  style={{ ...inputStyle, padding: '8px' }} 
+                  onChange={(e) => handleRawInputChange(item.id, e.target.value)} 
+                  style={{ ...inputStyle, padding: '8px', fontSize: '15px' }} 
                 />
                 <div style={{ fontSize: '11px', marginTop: '4px', fontWeight: '600', color: (item.available_quantity || 0) > 0 ? '#10b981' : '#ef4444', textAlign: 'center' }}>
-                  المتاح: {item.available_quantity || 0}
+                  المخزن: {item.available_quantity || 0}
                 </div>
               </div>
             ))}
@@ -292,73 +261,51 @@ const ProductionManager = ({ onBack }) => {
         )}
       </div>
 
-      {/* قسم عرض قائمة المنتجات التامة ووحدات الإنتاج المستهدفة والفعلية */}
+      {/* الشاشة الجديدة بالأسفل: تحديد نوع المنتج والكمية المطلوبة بدقة والربط بزر الحفظ */}
       <div style={{ ...cardStyle, backgroundColor: '#1e293b', color: '#fff' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '15px' }}>
-          <Box size={20} color="#3b82f6" />
-          <h3 style={{ margin: 0, color: '#f8fafc', fontSize: '15px', fontWeight: '700' }}>متابعة خط الإنتاج (الكميات المطلوبة والمنفذة)</h3>
+          <Layers size={20} color="#3b82f6" />
+          <h3 style={{ margin: 0, color: '#f8fafc', fontSize: '15px', fontWeight: '700' }}>2️⃣ شاشة أمر الإنتاج المستهدف وتوزيع التكلفة</h3>
         </div>
 
         {isLoading ? (
           <div style={{ textAlign: 'center', padding: '15px', color: '#3b82f6' }}>جاري تحميل الأصناف...</div>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            {readyProducts.map(product => (
-              <div 
-                key={product.id} 
-                style={{ 
-                  backgroundColor: '#2d3a4f', 
-                  padding: '15px', 
-                  borderRadius: '18px',
-                  border: '1px solid #475569'
-                }}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '15px' }}>
+            
+            {/* الخانة الأولى: اختيار اسم المنتج التام المطلوب إنتاجه */}
+            <div>
+              <label style={{ display: 'block', fontSize: '12px', color: '#94a3b8', marginBottom: '6px', fontWeight: '600' }}>نوع المنتج المطلوب إنتاجه من الخامات</label>
+              <select 
+                value={selectedProductId} 
+                onChange={(e) => setSelectedProductId(e.target.value)} 
+                style={{ ...inputStyle, background: '#2d3a4f', color: '#fff', border: '1px solid #475569', textAlign: 'right' }}
               >
-                {/* السطر الأول: بيانات المنتج والمخزون الحالي */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', borderBottom: '1px dashed #475569', paddingBottom: '8px' }}>
-                  <span style={{ fontSize: '15px', fontWeight: '700', color: '#fff' }}>{product.name}</span>
-                  <span style={{ fontSize: '11px', color: '#94a3b8' }}>الرصيد بالمخزن: {product.available_quantity || 0} وحدة</span>
-                </div>
+                <option value="">-- اختر المنتج التام --</option>
+                {readyProducts.map(product => (
+                  <option key={product.id} value={product.id}>
+                    {product.name} (المخزون الحالي: {product.available_quantity || 0})
+                  </option>
+                ))}
+              </select>
+            </div>
 
-                {/* السطر الثاني: حقول إدخال الكمية المطلوبة مقابل المنفذة فعلياً */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '11px', color: '#94a3b8', marginBottom: '4px', textAlign: 'center' }}>🎯 الكمية المطلوبة</label>
-                    <input 
-                      type="number" 
-                      value={targetInputs[product.id] || ''} 
-                      placeholder="المستهدف" 
-                      onChange={(e) => handleInputChange(product.id, e.target.value, 'targets')} 
-                      style={{ 
-                        ...inputStyle, 
-                        background: '#1e293b', 
-                        color: '#f59e0b', // لون برتقالي مميز للمستهدف
-                        border: '1px solid #475569', 
-                        padding: '8px'
-                      }} 
-                    />
-                  </div>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '11px', color: '#94a3b8', marginBottom: '4px', textAlign: 'center' }}>✅ الكمية المنتجة فعلياً</label>
-                    <input 
-                      type="number" 
-                      value={productsInputs[product.id] || ''} 
-                      placeholder="المنفذ الفعلي" 
-                      onChange={(e) => handleInputChange(product.id, e.target.value, 'products')} 
-                      style={{ 
-                        ...inputStyle, 
-                        background: '#1e293b', 
-                        color: '#10b981', // لون أخضر للمنفذ والجاهز للتسليم
-                        border: '1px solid #475569', 
-                        padding: '8px'
-                      }} 
-                    />
-                  </div>
-                </div>
-              </div>
-            ))}
+            {/* الخانة الثانية: تسجيل عدد الوحدات المطلوب إنتاجها */}
+            <div>
+              <label style={{ display: 'block', fontSize: '12px', color: '#94a3b8', marginBottom: '6px', fontWeight: '600' }}>عدد الوحدات المطلوب إنتاجها (سيتم خصم الخامات المحددة لها والباقي يرد للمخزن)</label>
+              <input 
+                type="number" 
+                value={requiredUnits} 
+                placeholder="اكتب عدد الوحدات هنا (مثال: 500)" 
+                onChange={(e) => setRequiredUnits(e.target.value)} 
+                style={{ ...inputStyle, background: '#2d3a4f', color: '#10b981', border: '1px solid #475569' }} 
+              />
+            </div>
+
           </div>
         )}
 
+        {/* زر الترحيل الرئيسي المرتبط بحسابات الشاشة المضافة */}
         <button 
           onClick={handleProcessProduction} 
           style={{ width: '100%', padding: '15px', background: '#10b981', color: '#fff', border: 'none', borderRadius: '15px', fontWeight: 'bold', fontSize: '16px', marginTop: '20px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
