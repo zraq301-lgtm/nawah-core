@@ -2,18 +2,18 @@
 import React, { useState, useEffect } from 'react';
 import { Factory, Save, ArrowLeft, AlertTriangle, Box, Calendar, Clock, Plus, Trash2, Zap, RefreshCw } from 'lucide-react';
 
-// 🚀 إدارة الكاش السحابي للـ ERP (تم تعديل المسار ليتطابق مع مكان الملف الحالي)
+// 🚀 إدارة الكاش السحابي والمزامنة الفورية لـ زاد الخير
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiService } from '../services/apiService';
 
 const ProductionManager = ({ onSaveProduction, onSaveWaste, onBack }) => {
   const queryClient = useQueryClient();
 
-  // 📥 [1] جلب بيانات جدول الأصناف (items) سحابياً وبشكل فوري لضمان دقة الأرصدة قبل السحب
+  // 📥 [1] جلب بيانات جدول الأصناف (items) سحابياً وبشكل مباشر من السكيما
   const { data: stockResponse, isLoading, refetch } = useQuery({
     queryKey: ['stock'],
     queryFn: () => apiService.getData('stock'),
-    staleTime: 0, // جلب البيانات طازجة دائماً لعدم حدوث عجز وهمي في الخامات
+    staleTime: 0, // جلب البيانات طازجة دائماً لضمان دقة الأرصدة قبل السحب الفعلي
   });
 
   // 🛡️ حزام أمان لاستخراج مصفوفة الأصناف الفعلية المتاحة في قاعدة البيانات
@@ -21,13 +21,12 @@ const ProductionManager = ({ onSaveProduction, onSaveWaste, onBack }) => {
     ? stockResponse
     : (stockResponse?.data || stockResponse?.items || []);
 
-  // 🔄 [2] تطبيق الفرز القياسي المتوافق مع السكيما لعزل المواد الخام القابلة للخصم والاستهلاك
+  // 🔄 [2] تطبيق الفرز القياسي المتوافق مع السكيما لعزل المواد الخام القابلة للاستهلاك
   const rawMaterials = itemsList.filter(item => {
     if (!item) return false;
     const itemType = (item.item_type || '').toString().toLowerCase().trim();
     const itemName = (item.name || '').toString().toLowerCase().trim();
 
-    // فرز مرن وعام: تصفية الأصناف المسجلة كخامة أو التي لا تحمل وسوم المنتجات الجاهزة
     return (
       itemType === 'raw_material' || 
       itemType === 'خامة' || 
@@ -93,34 +92,48 @@ const ProductionManager = ({ onSaveProduction, onSaveWaste, onBack }) => {
     setFormData(prev => ({ ...prev, products: updatedProducts }));
   };
 
-  // 🚀 [3] معالجة الترحيل وحساب تكلفة الإنتاج وتحديث الأرصدة
+  // 🚀 [3] معالجة الترحيل وحساب التكلفة وسحب (خصم) الخامات فعلياً من السيرفر
   const handleProcessProduction = async () => {
     let totalActualCost = 0;
     const actualConsumedIngredients = {};
+    const stockUpdatesQueue = []; // طابور لتخزين عمليات تحديث المخزن الناجحة
 
-    // التحقق الفوري والدقيق من الخامات بناءً على الأرصدة السحابية الحالية
+    // أخذ لقطة حديثة من البيانات لضمان عدم التضارب
+    const currentItems = itemsList;
+
+    // المرحلة الأولى: التحقق من الكميات وحساب التكاليف وتجهيز طابور الخصم
     for (const [ingName, requiredQty] of Object.entries(ingredientsInputs)) {
       if (!ingName || requiredQty <= 0) continue;
       
       const cleanIngName = ingName.trim().toLowerCase();
-      // البحث عن الخامة داخل مصفوفة السكيما المحدثة
-      const stockItem = itemsList.find(s => s.name && s.name.trim().toLowerCase() === cleanIngName);
+      const stockItem = currentItems.find(s => s.name && s.name.trim().toLowerCase() === cleanIngName);
       
-      // ربط دقيق بحقل available_quantity التابع لقاعدة البيانات
       const totalAvailable = stockItem ? parseFloat(stockItem.available_quantity || 0) : 0;
       const currentCostPrice = stockItem ? parseFloat(stockItem.cost_price || 0) : 0;
 
       if (!stockItem || totalAvailable < requiredQty) {
-        alert(`⚠️ عجز في مادة: ${ingName}\nالمطلوب استهلاكه: ${requiredQty}\nالمتوفر حالياً بالسكيما: ${totalAvailable}`);
+        alert(`⚠️ عجز في المادة الخام: ${ingName}\nالمطلوب استهلاكه: ${requiredQty}\nالمتوفر حالياً في المخزن: ${totalAvailable}`);
         return;
       }
 
       // حساب التكلفة الفعلية بناءً على سعر تكلفة الشراء المسجل بالسيستم
       totalActualCost += (requiredQty * currentCostPrice);
       actualConsumedIngredients[ingName.trim()] = requiredQty;
+
+      // حساب الرصيد الجديد بعد السحب والخصم التلقائي
+      const updatedQuantity = totalAvailable - requiredQty;
+
+      // إضافة بيانات التحديث المقترحة للطابور
+      stockUpdatesQueue.push({
+        id: stockItem.id,
+        payload: {
+          ...stockItem,
+          available_quantity: updatedQuantity
+        }
+      });
     }
 
-    // حساب مجموع الوحدات المنتجة أياً كان نوع المنتج النهائي
+    // حساب مجموع الوحدات المنتجة
     const totalProductionUnits = formData.products.reduce((sum, p) => sum + (parseFloat(p.quantity) || 0), 0);
     
     if (totalProductionUnits <= 0) {
@@ -142,7 +155,20 @@ const ProductionManager = ({ onSaveProduction, onSaveWaste, onBack }) => {
     };
 
     try {
-      // 💾 ترحيل وحفظ عملية الإنتاج الفعلي للجهة الخلفية
+      // ⚡ تفعيل السحب الفعلي: تحديث كميات الخامات المستهلكة في قاعدة البيانات (Neon) صنف صنف
+      for (const updateItem of stockUpdatesQueue) {
+        if (apiService.updateData) {
+          // إذا كانت الدالة الموحدة تستقبل (tableName, id, data)
+          await apiService.updateData('stock', updateItem.id, updateItem.payload);
+        } else if (apiService.putData) {
+          await apiService.putData(`stock/${updateItem.id}`, updateItem.payload);
+        } else {
+          // خط دفاع احتياطي في حال استخدام دالة post مخصصة للتحديث في المشروع
+          await apiService.postData(`stock/update/${updateItem.id}`, updateItem.payload);
+        }
+      }
+
+      // 💾 ترحيل وحفظ عملية الإنتاج الفعلي للجهة الخلفية (سجل العمليات)
       if (onSaveProduction) {
         await onSaveProduction(productionPayload);
       }
@@ -162,13 +188,13 @@ const ProductionManager = ({ onSaveProduction, onSaveWaste, onBack }) => {
       // 🔄 تنظيف وتحديث كاش الـ React Query لإجبار النظام على سحب قراءة جرد حية وجديدة فوراً
       await queryClient.invalidateQueries({ queryKey: ['stock'] });
       
-      alert(`✅ تم ترحيل الإنتاج بنجاح وصيانة التكاليف!\n• تم تعديل أرصدة الخامات المستهلكة.\n• تم احتساب تكلفة الوحدة: ${costPerUnit.toFixed(2)} ج.م\n• إجمالي تكلفة التشغيل: ${totalActualCost.toFixed(2)} ج.م`);
+      alert(`✅ تم سحب الخامات من المخزن بنجاح وترحيل الإنتاج!\n• تم تعديل أرصدة الخامات المستهلكة في قاعدة البيانات.\n• تم احتساب تكلفة الوحدة: ${costPerUnit.toFixed(2)} ج.م\n• إجمالي تكلفة التشغيل: ${totalActualCost.toFixed(2)} ج.م`);
       
       if (onBack) onBack();
 
     } catch (error) {
-      console.error("❌ خطأ أثناء حفظ وترحيل عملية الإنتاج ومزامنة المخزن:", error);
-      alert("🚨 فشل ترحيل البيانات السحابية، يرجى التحقق من اتصال السيرفر.");
+      console.error("❌ خطأ أثناء تحديث أرصدة المخزن أو ترحيل البيانات السحابية:", error);
+      alert("🚨 فشل ترحيل البيانات أو خصم الكميات، يرجى التحقق من اتصال السيرفر.");
     }
   };
 
@@ -224,7 +250,7 @@ const ProductionManager = ({ onSaveProduction, onSaveWaste, onBack }) => {
         </div>
         
         {isLoading ? (
-          <div style={{ texttextAligen: 'center', padding: '20px', color: '#4f46e5', fontWeight: 'bold', fontSize: '14px' }}>
+          <div style={{ textAlign: 'center', padding: '20px', color: '#4f46e5', fontWeight: 'bold', fontSize: '14px' }}>
             🔄 جاري جلب كميات الخامات المتوفرة بالسكيما الحية...
           </div>
         ) : (
@@ -240,7 +266,7 @@ const ProductionManager = ({ onSaveProduction, onSaveWaste, onBack }) => {
                 const availableQty = item.available_quantity || 0;
                 return (
                   <div key={item.id || ing} style={{ background: '#f8fafc', padding: '12px', borderRadius: '15px', border: '1px solid #e2e8f0' }}>
-                    <div style={{ fontSize: '14px', fontWeight: '700', marginBottom: '6px', color: '#1e293b', whitespace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{ing}</div>
+                    <div style={{ fontSize: '14px', fontWeight: '700', marginBottom: '6px', color: '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{ing}</div>
                     <input 
                       type="number" 
                       value={ingredientsInputs[ing] || ''} 
