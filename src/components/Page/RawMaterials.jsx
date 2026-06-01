@@ -1,26 +1,97 @@
 // src/components/RawMaterials.jsx
-import React from 'react';
-import { Trash2, Layers, Package, BarChart3, AlertTriangle, Barcode, ShoppingCart } from 'lucide-react';
+import React, { useState } from 'react';
+import { Trash2, Layers, Package, BarChart3, AlertTriangle, Barcode, ShoppingCart, Search, RefreshCw } from 'lucide-react';
 
-const RawMaterials = ({ categories = [], onDeleteItem, onSelectForPurchase }) => {
-  
-  // 🛡️ حزام أمان: الاعتماد المباشر على البيانات الممررة من الملف الأب (Inventory) 
-  // لأن الأب قام بعمل الفرز الأساسي بالفعل، ونضع هنا فحصاً احتياطياً فقط منعاً لتعليق الصفحة
-  const rawData = Array.isArray(categories) ? categories : [];
+// 🚀 استيراد أدوات إدارة الكاش والمزامنة السحابية الفورية
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { apiService } from '../services/apiService';
+
+const RawMaterials = ({ onDeleteItem, onSelectForPurchase }) => {
+  const queryClient = useQueryClient(); // محرك إنعاش الكاش عند الحذف أو التعديل
+  const [searchTerm, setSearchTerm] = useState('');
+
+  // 📥 تشغيل محرك المزامنة الذكي لجلب المخزن كاملاً سحابياً تلقائياً
+  const { data: stockData = [], isLoading, refetch } = useQuery({
+    queryKey: ['stock'],
+    queryFn: () => apiService.getData('stock'), // السيرفر سيترجمها لـ items تلقائياً
+    staleTime: 1000 * 60 * 2, // كاش طازج لمدة دقيقتين
+  });
+
+  // 🛡️ حزام أمان لاستخراج المصفوفة الصافية سواء كانت قادمة مباشرة أو مغلفة داخل كائن data
+  const itemsList = Array.isArray(stockData) 
+    ? stockData 
+    : (stockData?.data || stockData?.items || []);
+
+  // 🔄 تصفية وعزل الخامات فقط (استبعاد المنتجات النهائية كالمعمول والجاهز) بناءً على حقل الاسم والنوع
+  const rawData = itemsList.filter(item => {
+    if (!item) return false;
+    const itemName = (item.name || '').toString().toLowerCase();
+    const itemType = (item.item_type || item.type || item.category || '').toString().toLowerCase();
+    
+    // استبعاد لو كان منتج نهائي
+    return !(
+      itemType === 'product' || 
+      itemType === 'منتج نهائي' || 
+      itemType === 'منتجات' ||
+      itemName.includes("معمول") || 
+      itemName.includes("جاهز")
+    );
+  });
+
+  // محرك البحث الذكي (البحث بالاسم أو الباركود)
+  const filteredRawData = rawData.filter(item => 
+    (item.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (item.barcode || '').includes(searchTerm)
+  );
+
+  // دالة الحذف المعززة بإنعاش الكاش الفوري
+  const handleDelete = async (id, name) => {
+    if (window.confirm(`هل أنت متأكد من حذف خامة: ${name} من شجرة المخازن؟`)) {
+      if (onDeleteItem) {
+        await onDeleteItem(id);
+        // كسر الكاش وإجبار السيرفر على جلب قائمة جرد جديدة
+        await queryClient.invalidateQueries({ queryKey: ['stock'] });
+      }
+    }
+  };
 
   return (
     <div style={{ padding: '5px', direction: 'rtl', fontFamily: "'Tajawal', sans-serif" }}>
       
-      {rawData.length > 0 ? (
-        rawData.map((item, index) => {
-          // 🛡️ مواءمة واستخراج الحقول طبقاً للسكيما المركزية الموحدة (items) لزاد الخير:
+      {/* 🔍 شريط البحث الذكي + زر التحديث اليدوي */}
+      <div style={{ display: 'flex', gap: '8px', marginBottom: '15px' }}>
+        <div style={{ position: 'relative', flex: 1 }}>
+          <Search style={{ position: 'absolute', right: '14px', top: '14px', color: '#94a3b8' }} size={18} />
+          <input 
+            className="glass-input" 
+            placeholder="ابحث عن خامة بالاسم أو الباركود..." 
+            value={searchTerm} 
+            onChange={(e) => setSearchTerm(e.target.value)} 
+            style={{ paddingRight: '42px', width: '100%', boxSizing: 'border-box', borderRadius: '12px' }} 
+          />
+        </div>
+        <button 
+          onClick={() => refetch()} 
+          style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          title="تحديث البيانات من السيرفر"
+        >
+          <RefreshCw size={18} color="#4f46e5" className={isLoading ? "spin-animation" : ""} />
+        </button>
+      </div>
+
+      {/* ⏳ حالة جاري التحميل */}
+      {isLoading ? (
+        <div style={{ textAlign: 'center', padding: '40px', color: '#4f46e5', fontWeight: 'bold' }}>
+          🔄 جاري سحب الخامات والمواد الأولية من نيون...
+        </div>
+      ) : filteredRawData.length > 0 ? (
+        filteredRawData.map((item, index) => {
           const currentId = item?.id || index;
-          const availableQty = Number(item?.available_quantity || item?.quantity || 0); 
-          const costPrice = Number(item?.cost_price || 0); 
+          const availableQty = Number(item?.available_quantity || item?.quantity || item?.balance || 0); 
+          const costPrice = Number(item?.cost_price || item?.price || 0); 
           const itemBarcode = item?.barcode || 'بدون باركود';
           const itemName = item?.name || 'صنف غير مسمى';
           
-          // حساب مستوى الخطر (مخزون حرج إذا كانت الكمية 5 أو أقل)
           const isLowStock = availableQty <= 5;
 
           return (
@@ -48,7 +119,6 @@ const RawMaterials = ({ categories = [], onDeleteItem, onSelectForPurchase }) =>
                     </h3>
                   </div>
                   
-                  {/* عرض الباركود المتوافق مع سكيما التوريد والمشتريات */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.75rem', color: '#64748b', marginTop: '2px' }}>
                     <Barcode size={12} />
                     <span>الباركود: {itemBarcode}</span>
@@ -56,7 +126,6 @@ const RawMaterials = ({ categories = [], onDeleteItem, onSelectForPurchase }) =>
                 </div>
                 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  {/* 🛒 زر سريع لإدراج المادة الخام مباشرة في فاتورة المشتريات */}
                   {onSelectForPurchase && (
                     <button
                       onClick={() => onSelectForPurchase(item)}
@@ -78,22 +147,9 @@ const RawMaterials = ({ categories = [], onDeleteItem, onSelectForPurchase }) =>
                     </button>
                   )}
 
-                  {/* أيقونة الحذف المباشر */}
                   <button 
-                    onClick={() => {
-                      if (window.confirm(`هل أنت متأكد من حذف خامة: ${itemName} من المخزن؟`)) {
-                        onDeleteItem(currentId);
-                      }
-                    }} 
-                    style={{ 
-                      background: 'none', 
-                      border: 'none', 
-                      cursor: 'pointer', 
-                      padding: '4px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center'
-                    }}
+                    onClick={() => handleDelete(currentId, itemName)} 
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                     title="حذف الخامة من المخزن"
                   >
                     <Trash2 size={18} color="#ef4444" style={{ opacity: 0.8 }} />
@@ -109,10 +165,9 @@ const RawMaterials = ({ categories = [], onDeleteItem, onSelectForPurchase }) =>
                 </div>
               )}
 
-              {/* السطر الثاني: الحقول المادية والكميات المتزامنة مع الباك إند */}
+              {/* السطر الثاني: الكميات والأسعار المتزامنة بالكامل */}
               <div style={{ display: 'flex', gap: '10px', marginTop: '5px' }}>
                 
-                {/* مربع رصيد الخامة الحالي (available_quantity) */}
                 <div style={{ 
                   flex: 1, 
                   background: isLowStock ? 'rgba(239, 68, 68, 0.05)' : 'rgba(79, 70, 229, 0.03)', 
@@ -129,7 +184,6 @@ const RawMaterials = ({ categories = [], onDeleteItem, onSelectForPurchase }) =>
                   </span>
                 </div>
 
-                {/* مربع تكلفة الشراء (cost_price) */}
                 <div style={{ 
                   flex: 1, 
                   background: 'rgba(39, 174, 96, 0.03)', 
@@ -155,7 +209,7 @@ const RawMaterials = ({ categories = [], onDeleteItem, onSelectForPurchase }) =>
         <div style={{ background: '#fff', borderRadius: '15px', textAlign: 'center', padding: '4px', color: '#94a3b8', boxShadow: '0 4px 6px rgba(0,0,0,0.02)' }}>
           <div style={{ padding: '30px' }}>
             <Package size={36} style={{ marginBottom: '8px', opacity: 0.4, color: '#4f46e5' }} />
-            <p style={{ margin: 0, fontSize: '0.9rem' }}>لا توجد خامات مسجلة في جدول الأصناف حالياً</p>
+            <p style={{ margin: 0, fontSize: '0.9rem' }}>لا توجد مواد خام مسجلة تطابق بحثك حالياً</p>
           </div>
         </div>
       )}
