@@ -39,11 +39,11 @@ const ProductionManager = ({ onBack }) => {
       itemType === 'خامة' || 
       itemType === 'مواد خام' || 
       itemType === 'خامات' ||
-      item.name === 'سكر' || item.name === 'بلح' // تأكيد يدوي للأصناف الأساسية لضمان عدم خروجها
+      item.name === 'سكر' || item.name === 'بلح'
     );
   });
 
-  // 🛑 المتغيرات الجديدة: تحويل اسم المنتج إلى حقل إدخال نصي حر (Text Input) بناءً على طلبك
+  // 🛑 المتغيرات: اسم المنتج كحقل إدخال نصي حر بناءً على طلبك
   const [productNameInput, setProductNameInput] = useState('');
   const [unitsToProduce, setUnitsToProduce] = useState('');
 
@@ -54,7 +54,7 @@ const ProductionManager = ({ onBack }) => {
 
   const shifts = ['الأولى', 'الثانية', 'السهرة', 'إضافي'];
 
-  // 🚀 معالج احتساب الطبخة والترحيل التلقائي
+  // 🚀 معالج احتساب الطبخة والترحيل التلقائي متصل مباشرة بقاعدة البيانات
   const handleProcessProduction = async () => {
     const timestamp = Date.now();
     let consumedItemsQueue = [];
@@ -76,21 +76,33 @@ const ProductionManager = ({ onBack }) => {
     }
 
     try {
-      // 🔍 البحث عن الـ BOM المرتبط بالمنتج عن طريق مطابقة الاسم المكتوب مع سجلات الـ BOM
-      // نقوم بالبحث بالاسم المدخل للتسهيل على المستخدم (مع تجاهل المسافات وحالة الأحرف)
+      // 🔍 البحث عن الـ BOM المرتبط بالمنتج عن طريق مطابقة الاسم المكتوب
       const productBom = bomsList.find(b => 
         b.product_name?.toString().toLowerCase().trim() === enteredName.toLowerCase() ||
         b.name?.toString().toLowerCase().trim() === enteredName.toLowerCase()
       );
       
-      // نبحث أولاً إن كان المنتج معرفاً في جدول الأصناف، وإلا نقوم بإنشاء سجل افتراضي له لاحقاً أو ربطه برقم موحد
+      // نبحث إن كان المنتج معرفاً مسبقاً في الأصناف داخل المخزن
       let productItem = itemsList.find(s => s.name?.toString().toLowerCase().trim() === enteredName.toLowerCase());
+
+      // 🛑 خطوة ذكية: إذا كان المنتج جديد تماماً وغير مسجل بالمخزن، نقوم بإنشائه فوراً في قاعدة البيانات أولاً
+      if (!productItem) {
+        const newProductRes = await apiService.postData('stock', {
+          name: enteredName,
+          item_type: 'product',
+          available_quantity: 0,
+          cost_price: 0
+        });
+        productItem = newProductRes?.data || newProductRes;
+      }
+
+      const finalProductId = productItem?.id || timestamp;
 
       if (productBom && productBom.ingredients && productBom.ingredients.length > 0) {
         targetDetailsText += `[${enteredName}: كمية ${autoQty}] `;
 
         producedItemsQueue.push({
-          item_id: productItem ? productItem.id : 999, // إذا كان منتج جديد يعطى رقم افتراضي مؤقت للإنتاج الحر
+          item_id: finalProductId,
           quantity: autoQty,
           unit_price: 0 
         });
@@ -99,7 +111,7 @@ const ProductionManager = ({ onBack }) => {
           const baseQty = parseFloat(productBom.base_quantity || 1);
           const requiredIngredientQty = parseFloat(ingredient.required_quantity);
           
-          // 🧮 معادلة التناسب التلقائي للطبخة بناءً على عدد الوحدات المكتوبة
+          // 🧮 معادلة التناسب التلقائي للطبخة
           const calculatedRequiredQty = (autoQty / baseQty) * requiredIngredientQty;
           
           const rawItem = itemsList.find(s => s.id.toString() === ingredient.raw_material_id.toString());
@@ -129,18 +141,16 @@ const ProductionManager = ({ onBack }) => {
         });
 
       } else {
-        // 💡 دعم الإنتاج الحر المباشر في حال لم تتوفر معادلة (منعاً لتعطيل المصنع)
-        // يسحب بشكل افتراضي من الخامات المتوفرة بناءً على نمط الإنتاج المفتوح
-        alert(`ℹ️ إنتاج حر: سيتم ترحيل المنتج (${enteredName}) مباشرة إلى المخازن التامة كمنتج جديد.`);
-        
+        // دعم الإنتاج الحر المباشر في حال لم تتوفر معادلة (يسجل التكلفة الافتراضية)
         producedItemsQueue.push({
-          item_id: productItem ? productItem.id : timestamp,
+          item_id: finalProductId,
           quantity: autoQty,
-          unit_price: 10 // قيمة افتراضية للإنتاج الحر
+          unit_price: 10 
         });
+        totalMaterialsCost = autoQty * 10;
       }
 
-      // 🟩 أولاً: ترحيل فاتورة سحب المواد الخام التلقائية (sale) من المخزن
+      // 🟩 أولاً: ترحيل فاتورة سحب المواد الخام التلقائية (sale) من المخزن ليعمل الـ Trigger للخصم
       if (consumedItemsQueue.length > 0) {
         const saleInvoiceNumber = `RAW-AUTO-${timestamp}`;
         const saleInvoiceRes = await apiService.postData('invoices', {
@@ -165,34 +175,46 @@ const ProductionManager = ({ onBack }) => {
         }
       }
 
-      // 🟦 ثانياً: ترحيل فاتورة توريد وإيداع المنتج المكتوب يدوياً (purchase)
+      // 🟦 ثانياً: ربط وترحيل الإنتاج التام إلى قاعدة البيانات عن طريق فاتورة توريد (purchase) مطابقة تماماً لطريقة جلب الخامات
       if (producedItemsQueue.length > 0) {
         const purchaseInvoiceNumber = `PROD-AUTO-${timestamp}`;
         
-        await apiService.postData('invoices', {
+        // 1. إدراج رأس الفاتورة في جدول الفواتير
+        const purchaseInvoiceRes = await apiService.postData('invoices', {
           invoice_number: purchaseInvoiceNumber,
           invoice_type: 'purchase',
           contact_id: 1,
-          gross_amount: totalMaterialsCost || (autoQty * 10),
-          net_amount: totalMaterialsCost || (autoQty * 10),
-          paid_amount: totalMaterialsCost || (autoQty * 10),
+          gross_amount: totalMaterialsCost,
+          net_amount: totalMaterialsCost,
+          paid_amount: totalMaterialsCost,
           remaining_amount: 0,
           description: `إيداع وتصنيع فوري للمنتج: [ ${enteredName} ] وردية ${formData.shift} إلى مخزن زاد الخير التام.`
         });
+
+        // 2. إدراج تفاصيل المنتج التام في جدول أصناف الفاتورة (ليقوم السيرفر/الـ Trigger برفع الرصيد تلقائياً)
+        const purchaseInvoiceId = purchaseInvoiceRes?.id || purchaseInvoiceRes?.data?.id;
+        for (const prodItem of producedItemsQueue) {
+          await apiService.postData('invoice_items', {
+            invoice_id: purchaseInvoiceId,
+            item_id: prodItem.item_id,
+            quantity: prodItem.quantity,
+            unit_price: prodItem.unit_price
+          });
+        }
       }
 
-      // تحديث البيانات في الكاش لإظهار الأرصدة الجديدة فوراً
+      // تحديث البيانات في الكاش لإظهار الأرصدة المتغيرة فوراً على الشاشة
       await queryClient.invalidateQueries({ queryKey: ['stock'] });
 
-      alert(`✅ [نظام زاد الخير]: تم إنتاج (${enteredName}) بعدد وحدات (${autoQty}) بنجاح! وسحب الخامات آلياً من المخزن الخاص بها.`);
+      alert(`✅ [نظام زاد الخير]: تم ترحيل الإنتاج للمنتج (${enteredName}) بعدد وحدات (${autoQty}) بنجاح، وتحديث المخازن فوراً بروابط قاعدة البيانات.`);
       
       setProductNameInput('');
       setUnitsToProduce('');
       if (onBack) onBack();
 
     } catch (error) {
-      console.error("❌ خطأ عملية الترحيل الموحدة:", error);
-      alert("🚨 فشل الترحيل السحابي، يرجى مراجعة اتصال السيرفر.");
+      console.error("❌ خطأ في ترحيل العمليات المترابطة بقاعدة البيانات:", error);
+      alert("🚨 فشل الترحيل إلى قاعدة البيانات، يرجى مراجعة اتصال السيرفر.");
     }
   };
 
@@ -246,9 +268,8 @@ const ProductionManager = ({ onBack }) => {
         </div>
       </div>
 
-      {/* عرض شبكة المواد الخام الحقيقية في المخزن (للاطلاع والمراقبة) */}
+      {/* أرصدة المواد الخام الحالية */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '24px', alignItems: 'start' }}>
-        
         <div style={{ ...cardStyle, backgroundColor: '#1e293b', color: '#fff' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '15px', borderBottom: '1px solid #475569', paddingBottom: '10px' }}>
             <Box size={20} color="#3b82f6" />
@@ -271,7 +292,7 @@ const ProductionManager = ({ onBack }) => {
           )}
         </div>
 
-        {/* شاشة تشغيل وإنتاج الوحدات المطلوبة (الإدخال اليدوي الحر المباشر) */}
+        {/* مدخلات الإنتاج النصية الحرة */}
         <div style={{ ...cardStyle, border: '2px solid #e2e8f0', backgroundColor: '#f8fafc' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '15px' }}>
             <PackagePlus size={22} color="#4f46e5" />
@@ -300,10 +321,9 @@ const ProductionManager = ({ onBack }) => {
             </div>
           </div>
         </div>
-
       </div>
 
-      {/* زر الحفظ والترحيل النهائي وتفعيل الـ Trigger */}
+      {/* زر الترحيل النهائي وتفعيل الـ Triggers */}
       <button 
         onClick={handleProcessProduction} 
         style={{ width: '100%', padding: '16px', background: '#10b981', color: '#fff', border: 'none', borderRadius: '15px', fontWeight: 'bold', fontSize: '16px', marginTop: '24px', marginBottom: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', boxShadow: '0 4px 12px rgba(16, 185, 129, 0.2)' }}
