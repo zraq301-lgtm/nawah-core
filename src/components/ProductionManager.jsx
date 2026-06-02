@@ -60,7 +60,6 @@ const ProductionManager = ({ onBack }) => {
     let consumedItemsQueue = [];
     let producedItemsQueue = [];
     let totalMaterialsCost = 0;
-    let targetDetailsText = "";
 
     if (!itemsList || itemsList.length === 0) {
       alert("⚠️ لا توجد بيانات مخزون متاحة حالياً، يرجى تحديث الصفحة.");
@@ -71,62 +70,58 @@ const ProductionManager = ({ onBack }) => {
     const enteredName = productNameInput.trim();
 
     if (!enteredName || autoQty <= 0) {
-      alert("⚠️ يرجى كتابة اسم المنتج المراد إنتاجه (مثل: بسبوسة) وإدخال عدد الوحدات.");
+      alert("⚠️ يرجى كتابة اسم المنتج المراد إنتهائه وإدخال عدد الوحدات.");
       return;
     }
 
     try {
-      // 🔍 البحث عن الـ BOM المرتبط بالمنتج عن طريق مطابقة الاسم المكتوب
-      const productBom = bomsList.find(b => 
-        b.product_name?.toString().toLowerCase().trim() === enteredName.toLowerCase() ||
-        b.name?.toString().toLowerCase().trim() === enteredName.toLowerCase()
-      );
+      // 🔍 البحث المرن عن الـ BOM (تتجاهل المسافات الزائدة)
+      const cleanEnteredName = enteredName.toLowerCase().replace(/\s+/g, '');
+      const productBom = bomsList.find(b => {
+        const bName = (b.product_name || b.name || '').toString().toLowerCase().replace(/\s+/g, '');
+        return bName.includes(cleanEnteredName) || cleanEnteredName.includes(bName);
+      });
       
       // نبحث إن كان المنتج معرفاً مسبقاً في الأصناف داخل المخزن
-      let productItem = itemsList.find(s => s.name?.toString().toLowerCase().trim() === enteredName.toLowerCase());
+      let productItem = itemsList.find(s => 
+        s.name?.toString().toLowerCase().trim() === enteredName.toLowerCase()
+      );
 
       let finalProductId = null;
 
-      // 🛑 خطوة ذكية ومعدلة: تصحيح postData إلى createData لإنشاء المنتج وجلب الـ ID
+      // إذا لم يكن المنتج موجوداً، نقوم بإنشائه فوراً بأسعار مبدئية
       if (!productItem) {
         const newProductRes = await apiService.createData('stock', {
           name: enteredName,
           item_type: 'product',
           available_quantity: 0,
-          cost_price: 0
+          cost_price: 0,
+          selling_price: 0
         });
         
-        // استخراج الـ ID بدقة بحسب طريقة رد السيرفر الفكرية للـ API
         if (newProductRes?.id) {
           finalProductId = newProductRes.id;
         } else if (newProductRes?.data?.id) {
           finalProductId = newProductRes.data.id;
-        } else if (Array.isArray(newProductRes) && newProductRes[0]?.id) {
-          finalProductId = newProductRes[0].id;
-        } else if (newProductRes?.insertedId) {
-          finalProductId = newProductRes.insertedId;
         } else {
-          // إذا لم نجد الـ ID في الاستجابة، نقوم بعمل استعلام سريع لضمان الحصول عليه
+          // استعلام سريع لضمان الحصول على الـ ID الجديد
           const freshStock = await apiService.getData('stock');
           const freshList = Array.isArray(freshStock) ? freshStock : (freshStock?.data || freshStock?.items || []);
           const foundCreated = freshList.find(s => s.name?.toString().toLowerCase().trim() === enteredName.toLowerCase());
-          if (foundCreated) {
-            finalProductId = foundCreated.id;
-          }
+          if (foundCreated) finalProductId = foundCreated.id;
         }
       } else {
         finalProductId = productItem.id;
       }
 
-      // قفل أمان: إذا فشل النظام تماماً في توفير معرف صنف حقيقي نوقف العملية
       if (!finalProductId) {
-        alert("🚨 فشل النظام في تسجيل أو تحديد كود الصنف التام في قاعدة البيانات، يرجى إعادة المحاولة.");
+        alert("🚨 فشل النظام في تسجيل أو تحديد كود الصنف في قاعدة البيانات.");
         return;
       }
 
+      // 🟩 الحسابات بناءً على وجود المعادلة (BOM) أو الإنتاج الحر
       if (productBom && productBom.ingredients && productBom.ingredients.length > 0) {
-        targetDetailsText += `[${enteredName}: كمية ${autoQty}] `;
-
+        
         producedItemsQueue.push({
           item_id: finalProductId,
           quantity: autoQty,
@@ -137,7 +132,7 @@ const ProductionManager = ({ onBack }) => {
           const baseQty = parseFloat(productBom.base_quantity || 1);
           const requiredIngredientQty = parseFloat(ingredient.required_quantity);
           
-          // 🧮 معادلة التناسب التلقائي للطبخة
+          // معادلة التناسب للكمية المطلوبة
           const calculatedRequiredQty = (autoQty / baseQty) * requiredIngredientQty;
           
           const rawItem = itemsList.find(s => s.id.toString() === ingredient.raw_material_id.toString());
@@ -146,9 +141,9 @@ const ProductionManager = ({ onBack }) => {
           const availableQty = parseFloat(rawItem.available_quantity || 0);
           const costPrice = parseFloat(rawItem.cost_price || 0);
 
-          // التحقق من كفاية أرصدة الخامات بالمخزن قبل الخصم
+          // التحقق من كفاية المخزون للخيارات
           if (availableQty < calculatedRequiredQty) {
-            alert(`⚠️ عجز في مخزن الخامات: المادة الخام (${rawItem.name})\nالمطلوب آلياً للتشغيل: ${calculatedRequiredQty.toFixed(2)} | المتوفر فعلياً: ${availableQty}`);
+            alert(`⚠️ عجز في مخزن الخامات: (${rawItem.name})\nالمطلوب: ${calculatedRequiredQty.toFixed(2)} | المتوفر: ${availableQty}`);
             return;
           }
 
@@ -160,23 +155,25 @@ const ProductionManager = ({ onBack }) => {
           });
         }
 
-        // حساب تكلفة الوحدة الواحدة بالتناسب مع المواد المستهلكة
+        // حساب تكلفة الوحدة التقديرية بناءً على الخامات المستهلكة
         const costPerUnit = autoQty > 0 ? (totalMaterialsCost / autoQty) : 0;
         producedItemsQueue.forEach(p => {
           p.unit_price = parseFloat(costPerUnit.toFixed(2));
         });
 
       } else {
-        // دعم الإنتاج الحر المباشر في حال لم تتوفر معادلة (يسجل التكلفة الافتراضية)
+        // ⚠️ إنتاج حر (إذا لم يتم العثور على BOM، نضع تكلفة افتراضية 10 ج.م للوحدة لتفادي ظهور الأصفار)
+        const defaultUnitCost = productItem?.cost_price > 0 ? productItem.cost_price : 10;
+        totalMaterialsCost = autoQty * defaultUnitCost;
+
         producedItemsQueue.push({
           item_id: finalProductId,
           quantity: autoQty,
-          unit_price: 10 
+          unit_price: defaultUnitCost
         });
-        totalMaterialsCost = autoQty * 10;
       }
 
-      // 🟩 أولاً: ترحيل فاتورة سحب المواد الخام التلقائية (sale)
+      // 1️⃣ أولاً: ترحيل فاتورة سحب المواد الخام (فاتورة المبيعات الاستهلاكية للإنتاج)
       if (consumedItemsQueue.length > 0) {
         const saleInvoiceNumber = `RAW-AUTO-${timestamp}`;
         const saleInvoiceRes = await apiService.createData('invoices', {
@@ -187,25 +184,26 @@ const ProductionManager = ({ onBack }) => {
           net_amount: totalMaterialsCost,
           paid_amount: totalMaterialsCost,
           remaining_amount: 0,
-          description: `خصم خامات آلي لخط الإنتاج لمنتج مكتوب يدوياً: ${enteredName} عدد ${autoQty}`
+          description: `خصم خامات آلي لإنتاج: ${enteredName} بعدد ${autoQty}`
         });
 
         const saleInvoiceId = saleInvoiceRes?.id || saleInvoiceRes?.data?.id;
+        
+        // إدخال الأصناف المستهلكة لإجبار الـ Trigger على تفعيل الخصم من المستودع
         for (const rawItem of consumedItemsQueue) {
           await apiService.createData('invoice_items', {
             invoice_id: saleInvoiceId,
             item_id: rawItem.item_id,
             quantity: rawItem.quantity,
-            unit_price: rawItem.unit_price
+            unit_price: rawItem.unit_price,
+            total_price: rawItem.quantity * rawItem.unit_price
           });
         }
       }
 
-      // 🟦 ثانياً: ترحيل الإنتاج التام (purchase)
+      // 2️⃣ ثانياً: ترحيل إيداع المنتج التام (فاتورة المشتريات الإنتاجية)
       if (producedItemsQueue.length > 0) {
         const purchaseInvoiceNumber = `PROD-AUTO-${timestamp}`;
-        
-        // 1. إدراج رأس الفاتورة في جدول الفواتير
         const purchaseInvoiceRes = await apiService.createData('invoices', {
           invoice_number: purchaseInvoiceNumber,
           invoice_type: 'purchase',
@@ -214,33 +212,41 @@ const ProductionManager = ({ onBack }) => {
           net_amount: totalMaterialsCost,
           paid_amount: totalMaterialsCost,
           remaining_amount: 0,
-          description: `إيداع وتصنيع فوري للمنتج: [ ${enteredName} ] وردية ${formData.shift} إلى مخزن زاد الخير التام.`
+          description: `توليد وإنتاج فوري للمنتج: [ ${enteredName} ] - وردية ${formData.shift}`
         });
 
-        // 2. إدراج تفاصيل المنتج التام في جدول أصناف الفاتورة
         const purchaseInvoiceId = purchaseInvoiceRes?.id || purchaseInvoiceRes?.data?.id;
+        
+        // إدخال تفاصيل المنتج لزيادة كميته وحساب تكلفته بالـ Trigger
         for (const prodItem of producedItemsQueue) {
           await apiService.createData('invoice_items', {
             invoice_id: purchaseInvoiceId,
             item_id: prodItem.item_id,
             quantity: prodItem.quantity,
-            unit_price: prodItem.unit_price
+            unit_price: prodItem.unit_price,
+            total_price: prodItem.quantity * prodItem.unit_price
           });
+
+          // 💡 تحديث مباشر وتأكيدي على الصنف نفسه لضمان عدم اعتماد التكلفة على الـ Trigger فقط
+          await apiService.updateData(`stock/${prodItem.item_id}`, {
+            cost_price: prodItem.unit_price
+          }).catch(e => console.log("تحديث التكلفة المباشر اختياري حسب السيرفر"));
         }
       }
 
-      // تحديث البيانات في الكاش لإظهار الأرصدة المتغيرة فوراً على الشاشة
+      // تحديث فوري للكاش وإعادة جلب البيانات لعرضها على الشاشة الحالية
       await queryClient.invalidateQueries({ queryKey: ['stock'] });
+      await refetch();
 
-      alert(`✅ [نظام زاد الخير]: تم ترحيل الإنتاج للمنتج (${enteredName}) بعدد وحدات (${autoQty}) بنجاح، وتحديث المخازن فوراً بروابط قاعدة البيانات.`);
+      alert(`✅ [نظام زاد الخير]: تم ترحيل إنتاج (${enteredName}) بعدد وحدات (${autoQty}) وتحديث أرصدة وتكاليف المخازن بنجاح.`);
       
       setProductNameInput('');
       setUnitsToProduce('');
       if (onBack) onBack();
 
     } catch (error) {
-      console.error("❌ خطأ في ترحيل العمليات المترابطة بقاعدة البيانات:", error);
-      alert(`🚨 فشل الترحيل إلى قاعدة البيانات: ${error.message || "يرجى مراجعة قيود الجداول"}`);
+      console.error("❌ خطأ أثناء معالجة البيانات:", error);
+      alert(`🚨 فشل الترحيل: ${error.message || "يرجى التحقق من اتصال السيرفر"}`);
     }
   };
 
@@ -318,18 +324,18 @@ const ProductionManager = ({ onBack }) => {
           )}
         </div>
 
-        {/* مدخلات الإنتاج النصية الحرة */}
+        {/* مدخلات الإنتاج النصية */}
         <div style={{ ...cardStyle, border: '2px solid #e2e8f0', backgroundColor: '#f8fafc' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '15px' }}>
             <PackagePlus size={22} color="#4f46e5" />
-            <h3 style={{ margin: 0, color: '#1e293b', fontSize: '16px', fontWeight: '700' }}>🎯 مدخلات الإنتاج (اكتب اسم الصنف بحرية ليقوم النظام الذكي بخصم خاماته)</h3>
+            <h3 style={{ margin: 0, color: '#1e293b', fontSize: '16px', fontWeight: '700' }}>🎯 مدخلات الإنتاج</h3>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
             <div>
-              <label style={{ display: 'block', fontSize: '12px', marginBottom: '6px', color: '#475569', fontWeight: '700' }}>اسم المنتج المراد إنتهائه فعلياً</label>
+              <label style={{ display: 'block', fontSize: '12px', marginBottom: '6px', color: '#475569', fontWeight: '700' }}>اسم المنتج المراد إنتاجه</label>
               <input 
                 type="text"
-                placeholder="اكتب هنا (مثال: بسبوسة، معمول، فطير)"
+                placeholder="اكتب هنا (مثال: معمول جاهز)"
                 value={productNameInput}
                 onChange={(e) => setProductNameInput(e.target.value)}
                 style={{ ...inputStyle, border: '2px solid #4f46e5', backgroundColor: '#fff', textAlign: 'right' }}
@@ -339,7 +345,7 @@ const ProductionManager = ({ onBack }) => {
               <label style={{ display: 'block', fontSize: '12px', marginBottom: '6px', color: '#475569', fontWeight: '700' }}>عدد الوحدات المراد إنتاجها</label>
               <input 
                 type="number" 
-                placeholder="أدخل عدد الوحدات (مثال: 5)" 
+                placeholder="أدخل عدد الوحدات" 
                 value={unitsToProduce} 
                 onChange={(e) => setUnitsToProduce(e.target.value)} 
                 style={{ ...inputStyle, border: '2px solid #4f46e5', backgroundColor: '#fff' }} 
@@ -349,7 +355,7 @@ const ProductionManager = ({ onBack }) => {
         </div>
       </div>
 
-      {/* زر الترحيل النهائي وتفعيل الـ Triggers */}
+      {/* زر الترحيل النهائي */}
       <button 
         onClick={handleProcessProduction} 
         style={{ width: '100%', padding: '16px', background: '#10b981', color: '#fff', border: 'none', borderRadius: '15px', fontWeight: 'bold', fontSize: '16px', marginTop: '24px', marginBottom: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', boxShadow: '0 4px 12px rgba(16, 185, 129, 0.2)' }}
