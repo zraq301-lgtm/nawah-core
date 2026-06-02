@@ -176,7 +176,7 @@ const ProductionManager = ({ onBack }) => {
         totalMaterialsCost = autoQty * 10;
       }
 
-      // 🟩 أولاً: تصحيح postData إلى createData لترحيل فاتورة سحب المواد الخام التلقائية (sale)
+      // 🟩 أولاً: ترحيل فاتورة سحب المواد الخام التلقائية (sale)
       if (consumedItemsQueue.length > 0) {
         const saleInvoiceNumber = `RAW-AUTO-${timestamp}`;
         const saleInvoiceRes = await apiService.createData('invoices', {
@@ -201,7 +201,7 @@ const ProductionManager = ({ onBack }) => {
         }
       }
 
-      // 🟦 ثانياً: تصحيح postData إلى createData لترحيل الإنتاج التام (purchase)
+      // 🟦 ثانياً: ترحيل الإنتاج التام (purchase)
       if (producedItemsQueue.length > 0) {
         const purchaseInvoiceNumber = `PROD-AUTO-${timestamp}`;
         
@@ -331,7 +331,7 @@ const ProductionManager = ({ onBack }) => {
                 type="text"
                 placeholder="اكتب هنا (مثال: بسبوسة، معمول، فطير)"
                 value={productNameInput}
-                onChange={(e) => productNameInput(e.target.value)}
+                onChange={(e) => setProductNameInput(e.target.value)}
                 style={{ ...inputStyle, border: '2px solid #4f46e5', backgroundColor: '#fff', textAlign: 'right' }}
               />
             </div>
