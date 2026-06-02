@@ -43,7 +43,7 @@ const ProductionManager = ({ onBack }) => {
     );
   });
 
-  // 🛑 المتغيرات: اسم المنتج كحقل إدخال نصي حر بناءً على طلبك
+  // 🛑 المتغيرات: اسم المنتج كحقل إدخال نصي حر
   const [productNameInput, setProductNameInput] = useState('');
   const [unitsToProduce, setUnitsToProduce] = useState('');
 
@@ -85,7 +85,9 @@ const ProductionManager = ({ onBack }) => {
       // نبحث إن كان المنتج معرفاً مسبقاً في الأصناف داخل المخزن
       let productItem = itemsList.find(s => s.name?.toString().toLowerCase().trim() === enteredName.toLowerCase());
 
-      // 🛑 خطوة ذكية: إذا كان المنتج جديد تماماً وغير مسجل بالمخزن، نقوم بإنشائه فوراً في قاعدة البيانات أولاً
+      let finalProductId = null;
+
+      // 🛑 خطوة ذكية ومعدلة: التحقق من إنشاء المنتج وجلب الـ ID الحقيقي له من السيرفر
       if (!productItem) {
         const newProductRes = await apiService.postData('stock', {
           name: enteredName,
@@ -93,10 +95,34 @@ const ProductionManager = ({ onBack }) => {
           available_quantity: 0,
           cost_price: 0
         });
-        productItem = newProductRes?.data || newProductRes;
+        
+        // استخراج الـ ID بدقة بحسب طريقة رد السيرفر الفكرية للـ API
+        if (newProductRes?.id) {
+          finalProductId = newProductRes.id;
+        } else if (newProductRes?.data?.id) {
+          finalProductId = newProductRes.data.id;
+        } else if (Array.isArray(newProductRes) && newProductRes[0]?.id) {
+          finalProductId = newProductRes[0].id;
+        } else if (newProductRes?.insertedId) {
+          finalProductId = newProductRes.insertedId;
+        } else {
+          // إذا لم نجد الـ ID في الاستجابة، نقوم بعمل استعلام سريع لضمان الحصول عليه من قاعدة البيانات
+          const freshStock = await apiService.getData('stock');
+          const freshList = Array.isArray(freshStock) ? freshStock : (freshStock?.data || freshStock?.items || []);
+          const foundCreated = freshList.find(s => s.name?.toString().toLowerCase().trim() === enteredName.toLowerCase());
+          if (foundCreated) {
+            finalProductId = foundCreated.id;
+          }
+        }
+      } else {
+        finalProductId = productItem.id;
       }
 
-      const finalProductId = productItem?.id || timestamp;
+      // قفل أمان: إذا فشل النظام تماماً في توفير معرف صنف حقيقي نوقف العملية قبل ضرب قاعدة البيانات
+      if (!finalProductId) {
+        alert("🚨 فشل النظام في تسجيل أو تحديد كود الصنف التام في قاعدة البيانات، يرجى إعادة المحاولة.");
+        return;
+      }
 
       if (productBom && productBom.ingredients && productBom.ingredients.length > 0) {
         targetDetailsText += `[${enteredName}: كمية ${autoQty}] `;
@@ -175,7 +201,7 @@ const ProductionManager = ({ onBack }) => {
         }
       }
 
-      // 🟦 ثانياً: ربط وترحيل الإنتاج التام إلى قاعدة البيانات عن طريق فاتورة توريد (purchase) مطابقة تماماً لطريقة جلب الخامات
+      // 🟦 ثانياً: ربط وترحيل الإنتاج التام إلى قاعدة البيانات عن طريق فاتورة توريد (purchase)
       if (producedItemsQueue.length > 0) {
         const purchaseInvoiceNumber = `PROD-AUTO-${timestamp}`;
         
@@ -214,7 +240,7 @@ const ProductionManager = ({ onBack }) => {
 
     } catch (error) {
       console.error("❌ خطأ في ترحيل العمليات المترابطة بقاعدة البيانات:", error);
-      alert("🚨 فشل الترحيل إلى قاعدة البيانات، يرجى مراجعة اتصال السيرفر.");
+      alert("🚨 فشل الترحيل إلى قاعدة البيانات، يرجى مراجعة قيود الجداول أو مدخلات الصنف.");
     }
   };
 
@@ -300,7 +326,7 @@ const ProductionManager = ({ onBack }) => {
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
             <div>
-              <label style={{ display: 'block', fontSize: '12px', marginBottom: '6px', color: '#475569', fontWeight: '700' }}>اسم المنتج المراد إنتاجه فعلياً</label>
+              <label style={{ display: 'block', fontSize: '12px', marginBottom: '6px', color: '#475569', fontWeight: '700' }}>اسم المنتج المراد إنتهائه فعلياً</label>
               <input 
                 type="text"
                 placeholder="اكتب هنا (مثال: بسبوسة، معمول، فطير)"
