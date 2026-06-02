@@ -87,9 +87,9 @@ const ProductionManager = ({ onBack }) => {
 
       let finalProductId = null;
 
-      // 🛑 خطوة ذكية ومعدلة: التحقق من إنشاء المنتج وجلب الـ ID الحقيقي له من السيرفر
+      // 🛑 خطوة ذكية ومعدلة: تصحيح postData إلى createData لإنشاء المنتج وجلب الـ ID
       if (!productItem) {
-        const newProductRes = await apiService.postData('stock', {
+        const newProductRes = await apiService.createData('stock', {
           name: enteredName,
           item_type: 'product',
           available_quantity: 0,
@@ -106,7 +106,7 @@ const ProductionManager = ({ onBack }) => {
         } else if (newProductRes?.insertedId) {
           finalProductId = newProductRes.insertedId;
         } else {
-          // إذا لم نجد الـ ID في الاستجابة، نقوم بعمل استعلام سريع لضمان الحصول عليه من قاعدة البيانات
+          // إذا لم نجد الـ ID في الاستجابة، نقوم بعمل استعلام سريع لضمان الحصول عليه
           const freshStock = await apiService.getData('stock');
           const freshList = Array.isArray(freshStock) ? freshStock : (freshStock?.data || freshStock?.items || []);
           const foundCreated = freshList.find(s => s.name?.toString().toLowerCase().trim() === enteredName.toLowerCase());
@@ -118,7 +118,7 @@ const ProductionManager = ({ onBack }) => {
         finalProductId = productItem.id;
       }
 
-      // قفل أمان: إذا فشل النظام تماماً في توفير معرف صنف حقيقي نوقف العملية قبل ضرب قاعدة البيانات
+      // قفل أمان: إذا فشل النظام تماماً في توفير معرف صنف حقيقي نوقف العملية
       if (!finalProductId) {
         alert("🚨 فشل النظام في تسجيل أو تحديد كود الصنف التام في قاعدة البيانات، يرجى إعادة المحاولة.");
         return;
@@ -176,10 +176,10 @@ const ProductionManager = ({ onBack }) => {
         totalMaterialsCost = autoQty * 10;
       }
 
-      // 🟩 أولاً: ترحيل فاتورة سحب المواد الخام التلقائية (sale) من المخزن ليعمل الـ Trigger للخصم
+      // 🟩 أولاً: تصحيح postData إلى createData لترحيل فاتورة سحب المواد الخام التلقائية (sale)
       if (consumedItemsQueue.length > 0) {
         const saleInvoiceNumber = `RAW-AUTO-${timestamp}`;
-        const saleInvoiceRes = await apiService.postData('invoices', {
+        const saleInvoiceRes = await apiService.createData('invoices', {
           invoice_number: saleInvoiceNumber,
           invoice_type: 'sale',
           contact_id: 1, 
@@ -192,7 +192,7 @@ const ProductionManager = ({ onBack }) => {
 
         const saleInvoiceId = saleInvoiceRes?.id || saleInvoiceRes?.data?.id;
         for (const rawItem of consumedItemsQueue) {
-          await apiService.postData('invoice_items', {
+          await apiService.createData('invoice_items', {
             invoice_id: saleInvoiceId,
             item_id: rawItem.item_id,
             quantity: rawItem.quantity,
@@ -201,12 +201,12 @@ const ProductionManager = ({ onBack }) => {
         }
       }
 
-      // 🟦 ثانياً: ربط وترحيل الإنتاج التام إلى قاعدة البيانات عن طريق فاتورة توريد (purchase)
+      // 🟦 ثانياً: تصحيح postData إلى createData لترحيل الإنتاج التام (purchase)
       if (producedItemsQueue.length > 0) {
         const purchaseInvoiceNumber = `PROD-AUTO-${timestamp}`;
         
         // 1. إدراج رأس الفاتورة في جدول الفواتير
-        const purchaseInvoiceRes = await apiService.postData('invoices', {
+        const purchaseInvoiceRes = await apiService.createData('invoices', {
           invoice_number: purchaseInvoiceNumber,
           invoice_type: 'purchase',
           contact_id: 1,
@@ -217,10 +217,10 @@ const ProductionManager = ({ onBack }) => {
           description: `إيداع وتصنيع فوري للمنتج: [ ${enteredName} ] وردية ${formData.shift} إلى مخزن زاد الخير التام.`
         });
 
-        // 2. إدراج تفاصيل المنتج التام في جدول أصناف الفاتورة (ليقوم السيرفر/الـ Trigger برفع الرصيد تلقائياً)
+        // 2. إدراج تفاصيل المنتج التام في جدول أصناف الفاتورة
         const purchaseInvoiceId = purchaseInvoiceRes?.id || purchaseInvoiceRes?.data?.id;
         for (const prodItem of producedItemsQueue) {
-          await apiService.postData('invoice_items', {
+          await apiService.createData('invoice_items', {
             invoice_id: purchaseInvoiceId,
             item_id: prodItem.item_id,
             quantity: prodItem.quantity,
@@ -240,7 +240,7 @@ const ProductionManager = ({ onBack }) => {
 
     } catch (error) {
       console.error("❌ خطأ في ترحيل العمليات المترابطة بقاعدة البيانات:", error);
-      alert("🚨 فشل الترحيل إلى قاعدة البيانات، يرجى مراجعة قيود الجداول أو مدخلات الصنف.");
+      alert(`🚨 فشل الترحيل إلى قاعدة البيانات: ${error.message || "يرجى مراجعة قيود الجداول"}`);
     }
   };
 
@@ -331,7 +331,7 @@ const ProductionManager = ({ onBack }) => {
                 type="text"
                 placeholder="اكتب هنا (مثال: بسبوسة، معمول، فطير)"
                 value={productNameInput}
-                onChange={(e) => setProductNameInput(e.target.value)}
+                onChange={(e) => productNameInput(e.target.value)}
                 style={{ ...inputStyle, border: '2px solid #4f46e5', backgroundColor: '#fff', textAlign: 'right' }}
               />
             </div>
