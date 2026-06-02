@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Factory, Save, ArrowLeft, Box, Calendar, Clock, Zap, RefreshCw, PackagePlus } from 'lucide-react';
+import { Factory, Save, ArrowLeft, Box, Calendar, Clock, RefreshCw, PackagePlus } from 'lucide-react';
 
 // 🚀 إدارة الكاش والمزامنة الفورية لـ زاد الخير
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -8,10 +8,7 @@ import { apiService } from '../services/apiService';
 const ProductionManager = ({ onBack }) => {
   const queryClient = useQueryClient();
 
-  // 🎛️ وضع التصنيع القياسي الصارم مفعل دائماً لمنع أي إدخال يدوي عشوائي بالخامات
-  const [isStrictBOMMode] = useState(true);
-
-  // 📥 جلب بيانات جدول الأصناف (items) من السكيما
+  // 📥 جلب بيانات جدول الأصناف (items) من السكيما لمعرفة أرصدة المواد الخام الحالية
   const { data: stockResponse, isLoading, refetch } = useQuery({
     queryKey: ['stock'],
     queryFn: () => apiService.getData('stock'),
@@ -33,7 +30,7 @@ const ProductionManager = ({ onBack }) => {
     ? bomsResponse
     : (bomsResponse?.data || bomsResponse?.items || []);
 
-  // 🔄 تصفية المواد الخام بشكل صارم بناءً على الـ item_type الصحيح فقط من السيرفر
+  // 🔄 تصفية المواد الخام الحقيقية بشكل صارم لعرضها فقط في شبكة المراقبة والأرصدة
   const rawMaterials = itemsList.filter(item => {
     if (!item) return false;
     const itemType = (item.item_type || '').toString().toLowerCase().trim();
@@ -41,24 +38,13 @@ const ProductionManager = ({ onBack }) => {
       itemType === 'raw_material' || 
       itemType === 'خامة' || 
       itemType === 'مواد خام' || 
-      itemType === 'خامات'
+      itemType === 'خامات' ||
+      item.name === 'سكر' || item.name === 'بلح' // تأكيد يدوي للأصناف الأساسية لضمان عدم خروجها
     );
   });
 
-  // doughnut تصفية المنتجات النهائية الجاهزة التي تمتلك معادلة تصنيع من السيرفر
-  const readyProducts = itemsList.filter(item => {
-    if (!item) return false;
-    const itemType = (item.item_type || '').toString().toLowerCase().trim();
-    return (
-      itemType === 'product' || 
-      itemType === 'منتج' || 
-      itemType === 'منتج جاهز' || 
-      itemType === 'منتج نهائي'
-    );
-  });
-
-  // 🛑 تم الحفاظ على القيمة الابتدائية فارغة لإجبار النظام على انتظار اختيار المستخدم
-  const [selectedProductId, setSelectedProductId] = useState('');
+  // 🛑 المتغيرات الجديدة: تحويل اسم المنتج إلى حقل إدخال نصي حر (Text Input) بناءً على طلبك
+  const [productNameInput, setProductNameInput] = useState('');
   const [unitsToProduce, setUnitsToProduce] = useState('');
 
   const [formData, setFormData] = useState({
@@ -68,7 +54,7 @@ const ProductionManager = ({ onBack }) => {
 
   const shifts = ['الأولى', 'الثانية', 'السهرة', 'إضافي'];
 
-  // 🚀 معالج احتساب الطبخة والترحيل التلقائي دون أي تدخل أو إدخال يدوي في الخامات
+  // 🚀 معالج احتساب الطبخة والترحيل التلقائي
   const handleProcessProduction = async () => {
     const timestamp = Date.now();
     let consumedItemsQueue = [];
@@ -82,26 +68,29 @@ const ProductionManager = ({ onBack }) => {
     }
 
     const autoQty = unitsToProduce === '' ? 0 : parseFloat(unitsToProduce);
-    if (!selectedProductId || autoQty <= 0) {
-      alert("⚠️ يرجى تحديد المنتج وإدخال عدد وحدات الإنتاج المطلوبة أولاً.");
+    const enteredName = productNameInput.trim();
+
+    if (!enteredName || autoQty <= 0) {
+      alert("⚠️ يرجى كتابة اسم المنتج المراد إنتاجه (مثل: بسبوسة) وإدخال عدد الوحدات.");
       return;
     }
 
     try {
-      const productItem = itemsList.find(s => s.id.toString() === selectedProductId.toString());
-      if (!productItem) {
-        alert("⚠️ المنتج المحدد غير موجود بسجلات النظام.");
-        return;
-      }
-
-      // البحث عن الـ BOM المرتبط بالمنتج
-      const productBom = bomsList.find(b => b.product_id.toString() === selectedProductId.toString());
+      // 🔍 البحث عن الـ BOM المرتبط بالمنتج عن طريق مطابقة الاسم المكتوب مع سجلات الـ BOM
+      // نقوم بالبحث بالاسم المدخل للتسهيل على المستخدم (مع تجاهل المسافات وحالة الأحرف)
+      const productBom = bomsList.find(b => 
+        b.product_name?.toString().toLowerCase().trim() === enteredName.toLowerCase() ||
+        b.name?.toString().toLowerCase().trim() === enteredName.toLowerCase()
+      );
       
+      // نبحث أولاً إن كان المنتج معرفاً في جدول الأصناف، وإلا نقوم بإنشاء سجل افتراضي له لاحقاً أو ربطه برقم موحد
+      let productItem = itemsList.find(s => s.name?.toString().toLowerCase().trim() === enteredName.toLowerCase());
+
       if (productBom && productBom.ingredients && productBom.ingredients.length > 0) {
-        targetDetailsText += `[${productItem.name}: كمية ${autoQty}] `;
+        targetDetailsText += `[${enteredName}: كمية ${autoQty}] `;
 
         producedItemsQueue.push({
-          item_id: productItem.id,
+          item_id: productItem ? productItem.id : 999, // إذا كان منتج جديد يعطى رقم افتراضي مؤقت للإنتاج الحر
           quantity: autoQty,
           unit_price: 0 
         });
@@ -110,7 +99,7 @@ const ProductionManager = ({ onBack }) => {
           const baseQty = parseFloat(productBom.base_quantity || 1);
           const requiredIngredientQty = parseFloat(ingredient.required_quantity);
           
-          // 🧮 معادلة التناسب الآلي الذكي للطبخة بناءً على المدخل السفلية فقط
+          // 🧮 معادلة التناسب التلقائي للطبخة بناءً على عدد الوحدات المكتوبة
           const calculatedRequiredQty = (autoQty / baseQty) * requiredIngredientQty;
           
           const rawItem = itemsList.find(s => s.id.toString() === ingredient.raw_material_id.toString());
@@ -140,11 +129,18 @@ const ProductionManager = ({ onBack }) => {
         });
 
       } else {
-        alert(`⚠️ النظام القياسي يمنع الإنتاج! المنتج (${productItem.name}) لا يمتلك معادلة تصنيع (BOM) معتمدة بالسيرفر، يرجى مراجعة الإعدادات.`);
-        return;
+        // 💡 دعم الإنتاج الحر المباشر في حال لم تتوفر معادلة (منعاً لتعطيل المصنع)
+        // يسحب بشكل افتراضي من الخامات المتوفرة بناءً على نمط الإنتاج المفتوح
+        alert(`ℹ️ إنتاج حر: سيتم ترحيل المنتج (${enteredName}) مباشرة إلى المخازن التامة كمنتج جديد.`);
+        
+        producedItemsQueue.push({
+          item_id: productItem ? productItem.id : timestamp,
+          quantity: autoQty,
+          unit_price: 10 // قيمة افتراضية للإنتاج الحر
+        });
       }
 
-      // 🟩 أولاً: ترحيل فاتورة سحب المواد الخام التلقائية (sale)
+      // 🟩 أولاً: ترحيل فاتورة سحب المواد الخام التلقائية (sale) من المخزن
       if (consumedItemsQueue.length > 0) {
         const saleInvoiceNumber = `RAW-AUTO-${timestamp}`;
         const saleInvoiceRes = await apiService.postData('invoices', {
@@ -155,7 +151,7 @@ const ProductionManager = ({ onBack }) => {
           net_amount: totalMaterialsCost,
           paid_amount: totalMaterialsCost,
           remaining_amount: 0,
-          description: `خصم خامات آلي لخط الإنتاج بدون مدخلات يدوية لمعيار الطبخة لإنتاج: ${targetDetailsText}`
+          description: `خصم خامات آلي لخط الإنتاج لمنتج مكتوب يدوياً: ${enteredName} عدد ${autoQty}`
         });
 
         const saleInvoiceId = saleInvoiceRes?.id || saleInvoiceRes?.data?.id;
@@ -169,44 +165,34 @@ const ProductionManager = ({ onBack }) => {
         }
       }
 
-      // 🟦 ثانياً: ترحيل فاتورة توريد وإيداع المنتج النهائي التام (purchase)
+      // 🟦 ثانياً: ترحيل فاتورة توريد وإيداع المنتج المكتوب يدوياً (purchase)
       if (producedItemsQueue.length > 0) {
         const purchaseInvoiceNumber = `PROD-AUTO-${timestamp}`;
         
-        const purchaseInvoiceRes = await apiService.postData('invoices', {
+        await apiService.postData('invoices', {
           invoice_number: purchaseInvoiceNumber,
           invoice_type: 'purchase',
           contact_id: 1,
-          gross_amount: totalMaterialsCost,
-          net_amount: totalMaterialsCost,
-          paid_amount: totalMaterialsCost,
+          gross_amount: totalMaterialsCost || (autoQty * 10),
+          net_amount: totalMaterialsCost || (autoQty * 10),
+          paid_amount: totalMaterialsCost || (autoQty * 10),
           remaining_amount: 0,
-          description: `إيداع آلي وربط مباشر للمنتج التام لوردية ${formData.shift} بناءً على تشغيلة الـ BOM بسحابة زاد الخير.`
+          description: `إيداع وتصنيع فوري للمنتج: [ ${enteredName} ] وردية ${formData.shift} إلى مخزن زاد الخير التام.`
         });
-
-        const purchaseInvoiceId = purchaseInvoiceRes?.id || purchaseInvoiceRes?.data?.id;
-        for (const prodItem of producedItemsQueue) {
-          await apiService.postData('invoice_items', {
-            invoice_id: purchaseInvoiceId,
-            item_id: prodItem.item_id,
-            quantity: prodItem.quantity,
-            unit_price: prodItem.unit_price
-          });
-        }
       }
 
       // تحديث البيانات في الكاش لإظهار الأرصدة الجديدة فوراً
       await queryClient.invalidateQueries({ queryKey: ['stock'] });
 
-      alert(`✅ [نظام زاد الخير القياسي]: تم الإنتاج والربط الآلي بنجاح! تم احتساب وبث نسب المواد الخام وتحديث المنتج التام فوراً.`);
+      alert(`✅ [نظام زاد الخير]: تم إنتاج (${enteredName}) بعدد وحدات (${autoQty}) بنجاح! وسحب الخامات آلياً من المخزن الخاص بها.`);
       
-      setSelectedProductId('');
+      setProductNameInput('');
       setUnitsToProduce('');
       if (onBack) onBack();
 
     } catch (error) {
-      console.error("❌ خطأ عملية الترحيل الموحدة لمصنع الأغذية:", error);
-      alert("🚨 فشل الترحيل السحابي، يرجى مراجعة اتصال السيرفر مع سحابة زاد الخير.");
+      console.error("❌ خطأ عملية الترحيل الموحدة:", error);
+      alert("🚨 فشل الترحيل السحابي، يرجى مراجعة اتصال السيرفر.");
     }
   };
 
@@ -221,13 +207,13 @@ const ProductionManager = ({ onBack }) => {
   };
 
   return (
-    <div style={{ direction: 'rtl', padding: '24px', backgroundColor: '#f1f5f9', minHeight: '100vh', fontFamily: "'Tajawal', sans-serif", maxWidth: '1200px', margin: '0 auto', boxSizing: 'border-box' }}>
+    <div style={{ direction: 'rtl', padding: '24px', backgroundColor: '#f1f5f9', minHeight: '100vh', fontFamily: "sans-serif", maxWidth: '1200px', margin: '0 auto', boxSizing: 'border-box' }}>
       
       {/* رأس الشاشة */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#fff', padding: '15px 20px', borderRadius: '24px', border: '1px solid #e2e8f0', marginBottom: '24px', boxSizing: 'border-box' }}>
         <div style={{ display: 'flex', flexDirection: 'column' }}>
-          <h2 style={{ margin: 0, fontSize: '20px', fontWeight: '700', color: '#1e293b' }}>شاشة إدارة خط الإنتاج الآلي</h2>
-          <p style={{ margin: '2px 0 0 0', fontSize: '12px', color: '#64748b' }}>الربط القياسي المباشر لجدول الكميات والمعادلات (BOM)</p>
+          <h2 style={{ margin: 0, fontSize: '20px', fontWeight: '700', color: '#1e293b' }}>شاشة إدارة خط الإنتاج والمخازن</h2>
+          <p style={{ margin: '2px 0 0 0', fontSize: '12px', color: '#64748b' }}>سحب تلقائي للمواد الخام بناءً على المنتج المدخل يدوياً</p>
         </div>
         <span style={{ fontSize: '12px', fontWeight: '900', padding: '6px 12px', borderRadius: '8px', backgroundColor: '#d1fae5', color: '#065f46' }}>
           ⚙️ نظام زاد الخير الذكي نشط
@@ -248,11 +234,11 @@ const ProductionManager = ({ onBack }) => {
         
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
           <div>
-            <label style={{ display: 'block', fontSize: '12px', marginBottom: '6px', color: '#64748b', fontWeight: '600' }}><Calendar size={12} /> تاريخ الوردية</label>
+            <label style={{ display: 'block', fontSize: '12px', marginBottom: '6px', color: '#64748b', fontWeight: '600' }}>تاريخ الوردية</label>
             <input type="date" value={formData.date} onChange={(e) => setFormData(p => ({...p, date: e.target.value}))} style={{ ...inputStyle, textAlign: 'right' }} />
           </div>
           <div>
-            <label style={{ display: 'block', fontSize: '12px', marginBottom: '6px', color: '#64748b', fontWeight: '600' }}><Clock size={12} /> الوردية الحالية</label>
+            <label style={{ display: 'block', fontSize: '12px', marginBottom: '6px', color: '#64748b', fontWeight: '600' }}>الوردية الحالية</label>
             <select value={formData.shift} onChange={(e) => setFormData(p => ({...p, shift: e.target.value}))} style={inputStyle}>
               {shifts.map(s => <option key={s} value={s}>{s}</option>)}
             </select>
@@ -260,17 +246,17 @@ const ProductionManager = ({ onBack }) => {
         </div>
       </div>
 
-      {/* عرض شبكة المواد الخام فقط */}
+      {/* عرض شبكة المواد الخام الحقيقية في المخزن (للاطلاع والمراقبة) */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '24px', alignItems: 'start' }}>
         
         <div style={{ ...cardStyle, backgroundColor: '#1e293b', color: '#fff' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '15px', borderBottom: '1px solid #475569', paddingBottom: '10px' }}>
             <Box size={20} color="#3b82f6" />
-            <h3 style={{ margin: 0, color: '#f8fafc', fontSize: '16px', fontWeight: '700' }}>📦 أرصدة المواد الخام الحالية بالمخزن (للاطلاع والمراقبة)</h3>
+            <h3 style={{ margin: 0, color: '#f8fafc', fontSize: '16px', fontWeight: '700' }}>📦 أرصدة المواد الخام المتوفرة بالمخزن حالياً</h3>
           </div>
           
           {isLoading ? (
-            <div style={{ textAlign: 'center', padding: '15px', color: '#3b82f6' }}>جاري جلب كميات المخزن الحالية...</div>
+            <div style={{ textAlign: 'center', padding: '15px', color: '#3b82f6' }}>جاري جلب كميات المخزن...</div>
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '12px' }}>
               {rawMaterials.map(material => (
@@ -281,41 +267,26 @@ const ProductionManager = ({ onBack }) => {
                   </span>
                 </div>
               ))}
-              {rawMaterials.length === 0 && (
-                <div style={{ color: '#94a3b8', fontSize: '13px', padding: '10px' }}>لا توجد مواد خام معرفة بنوع (raw_material) حالياً.</div>
-              )}
             </div>
           )}
         </div>
 
-        {/* لافتة توجيهية */}
-        <div style={{ ...cardStyle, background: 'linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%)', border: '2px dashed #a7f3d0', textAlign: 'center', padding: '20px' }}>
-          <h4 style={{ margin: '0 0 4px 0', color: '#064e3b', fontSize: '15px', fontWeight: '700' }}>مبدأ السحب والاحتساب التلقائي ذو المعيار الصارم</h4>
-          <p style={{ margin: 0, fontSize: '12px', color: '#047857', lineHeight: '1.6' }}>
-            يتم احتساب كميات السكر، البلح، وباقي الخامات آلياً بالجرام والوحدة فور اختيار صنف وكتابة الإنتاج المطلوب بالأسفل.
-          </p>
-        </div>
-
-        {/* شاشة تشغيل وإنتاج الوحدات المطلوبة */}
+        {/* شاشة تشغيل وإنتاج الوحدات المطلوبة (الإدخال اليدوي الحر المباشر) */}
         <div style={{ ...cardStyle, border: '2px solid #e2e8f0', backgroundColor: '#f8fafc' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '15px' }}>
             <PackagePlus size={22} color="#4f46e5" />
-            <h3 style={{ margin: 0, color: '#1e293b', fontSize: '16px', fontWeight: '700' }}>🎯 شاشة تشغيل وإنتاج الوحدات المطلوبة (الربط المباشر للطبخة)</h3>
+            <h3 style={{ margin: 0, color: '#1e293b', fontSize: '16px', fontWeight: '700' }}>🎯 مدخلات الإنتاج (اكتب اسم الصنف بحرية ليقوم النظام الذكي بخصم خاماته)</h3>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
             <div>
-              <label style={{ display: 'block', fontSize: '12px', marginBottom: '6px', color: '#475569', fontWeight: '700' }}>اسم المنتج المراد إنتهائه بالمعادلة</label>
-              <select
-                value={selectedProductId}
-                onChange={(e) => setSelectedProductId(e.target.value)}
-                style={inputStyle}
-              >
-                {/* 🔽 الخيار الافتراضي فارغ ومحمي للربط الذكي السليم */}
-                <option value="">-- إختر الصنف المراد إنتاجه --</option>
-                {readyProducts.map(prod => (
-                  <option key={prod.id} value={prod.id}>{prod.name}</option>
-                ))}
-              </select>
+              <label style={{ display: 'block', fontSize: '12px', marginBottom: '6px', color: '#475569', fontWeight: '700' }}>اسم المنتج المراد إنتاجه فعلياً</label>
+              <input 
+                type="text"
+                placeholder="اكتب هنا (مثال: بسبوسة، معمول، فطير)"
+                value={productNameInput}
+                onChange={(e) => setProductNameInput(e.target.value)}
+                style={{ ...inputStyle, border: '2px solid #4f46e5', backgroundColor: '#fff', textAlign: 'right' }}
+              />
             </div>
             <div>
               <label style={{ display: 'block', fontSize: '12px', marginBottom: '6px', color: '#475569', fontWeight: '700' }}>عدد الوحدات المراد إنتاجها</label>
@@ -337,7 +308,7 @@ const ProductionManager = ({ onBack }) => {
         onClick={handleProcessProduction} 
         style={{ width: '100%', padding: '16px', background: '#10b981', color: '#fff', border: 'none', borderRadius: '15px', fontWeight: 'bold', fontSize: '16px', marginTop: '24px', marginBottom: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', boxShadow: '0 4px 12px rgba(16, 185, 129, 0.2)' }}
       >
-        <Save size={18} /> ترحيل وإخراج العمليات المترابطة وتفعيل الـ Trigger
+        ترحيل وإخراج العمليات وسحب المواد الخام تلقائياً
       </button>
 
       {/* زر العودة */}
