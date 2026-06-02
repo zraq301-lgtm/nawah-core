@@ -1,4 +1,3 @@
-// src/components/ProductionManager.jsx
 import React, { useState, useEffect } from 'react';
 import { Factory, Save, ArrowLeft, Box, Calendar, Clock, Zap, RefreshCw, PackagePlus } from 'lucide-react';
 
@@ -46,7 +45,7 @@ const ProductionManager = ({ onBack }) => {
     );
   });
 
-  //  doughnut تصفية المنتجات النهائية الجاهزة التي تمتلك معادلة تصنيع من السيرفر
+  // doughnut تصفية المنتجات النهائية الجاهزة التي تمتلك معادلة تصنيع من السيرفر
   const readyProducts = itemsList.filter(item => {
     if (!item) return false;
     const itemType = (item.item_type || '').toString().toLowerCase().trim();
@@ -58,7 +57,7 @@ const ProductionManager = ({ onBack }) => {
     );
   });
 
-  // حالات تخزين مدخلات شاشة التشغيل التلقائي
+  // 🛑 تم الحفاظ على القيمة الابتدائية فارغة لإجبار النظام على انتظار اختيار المستخدم
   const [selectedProductId, setSelectedProductId] = useState('');
   const [unitsToProduce, setUnitsToProduce] = useState('');
 
@@ -68,13 +67,6 @@ const ProductionManager = ({ onBack }) => {
   });
 
   const shifts = ['الأولى', 'الثانية', 'السهرة', 'إضافي'];
-
-  // تعيين المنتج الأول تلقائياً عند تحميل البيانات لربط شاشة الإنتاج فوراً
-  useEffect(() => {
-    if (readyProducts.length > 0 && !selectedProductId) {
-      setSelectedProductId(readyProducts[0].id.toString());
-    }
-  }, [stockResponse, readyProducts, selectedProductId]);
 
   // 🚀 معالج احتساب الطبخة والترحيل التلقائي دون أي تدخل أو إدخال يدوي في الخامات
   const handleProcessProduction = async () => {
@@ -208,6 +200,7 @@ const ProductionManager = ({ onBack }) => {
 
       alert(`✅ [نظام زاد الخير القياسي]: تم الإنتاج والربط الآلي بنجاح! تم احتساب وبث نسب المواد الخام وتحديث المنتج التام فوراً.`);
       
+      setSelectedProductId('');
       setUnitsToProduce('');
       if (onBack) onBack();
 
@@ -267,7 +260,7 @@ const ProductionManager = ({ onBack }) => {
         </div>
       </div>
 
-      {/* عرض شبكة المواد الخام فقط (بدون أي مدخلات يدوية أو حقول للمنتجات النهائية) */}
+      {/* عرض شبكة المواد الخام فقط */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '24px', alignItems: 'start' }}>
         
         <div style={{ ...cardStyle, backgroundColor: '#1e293b', color: '#fff' }}>
@@ -295,15 +288,15 @@ const ProductionManager = ({ onBack }) => {
           )}
         </div>
 
-        {/* لافتة توجيهية لتوضيح المعالجة الآلية */}
+        {/* لافتة توجيهية */}
         <div style={{ ...cardStyle, background: 'linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%)', border: '2px dashed #a7f3d0', textAlign: 'center', padding: '20px' }}>
           <h4 style={{ margin: '0 0 4px 0', color: '#064e3b', fontSize: '15px', fontWeight: '700' }}>مبدأ السحب والاحتساب التلقائي ذو المعيار الصارم</h4>
           <p style={{ margin: 0, fontSize: '12px', color: '#047857', lineHeight: '1.6' }}>
-            يتم احتساب كميات السكر، البلح، وباقي الخامات آلياً بالجرام والوحدة فور كتابة الإنتاج المطلوب بالأسفل، دون أي تدخل بشري لضمان مطابقة الجرد الفعلي للمخازن.
+            يتم احتساب كميات السكر، البلح، وباقي الخامات آلياً بالجرام والوحدة فور اختيار صنف وكتابة الإنتاج المطلوب بالأسفل.
           </p>
         </div>
 
-        {/* شاشة تشغيل وإنتاج الوحدات المطلوبة (المدخل الرئيسي الوحيد للعملية) */}
+        {/* شاشة تشغيل وإنتاج الوحدات المطلوبة */}
         <div style={{ ...cardStyle, border: '2px solid #e2e8f0', backgroundColor: '#f8fafc' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '15px' }}>
             <PackagePlus size={22} color="#4f46e5" />
@@ -311,12 +304,14 @@ const ProductionManager = ({ onBack }) => {
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
             <div>
-              <label style={{ display: 'block', fontSize: '12px', marginBottom: '6px', color: '#475569', fontWeight: '700' }}>اسم المنتج المراد إنتاجه بالمعادلة</label>
+              <label style={{ display: 'block', fontSize: '12px', marginBottom: '6px', color: '#475569', fontWeight: '700' }}>اسم المنتج المراد إنتهائه بالمعادلة</label>
               <select
                 value={selectedProductId}
                 onChange={(e) => setSelectedProductId(e.target.value)}
                 style={inputStyle}
               >
+                {/* 🔽 الخيار الافتراضي فارغ ومحمي للربط الذكي السليم */}
+                <option value="">-- إختر الصنف المراد إنتاجه --</option>
                 {readyProducts.map(prod => (
                   <option key={prod.id} value={prod.id}>{prod.name}</option>
                 ))}
