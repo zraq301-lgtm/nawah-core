@@ -9,8 +9,8 @@ import { apiService } from '../services/apiService';
 const ProductionManager = ({ onBack }) => {
   const queryClient = useQueryClient();
 
-  // 🎛️ وضع التصنيع الافتراضي: false للوضع المرن واليدوي، true لوضع BOM القياسي الصارم
-  const [isStrictBOMMode, setIsStrictBOMMode] = useState(false);
+  // 🎛️ وضع التصنيع الافتراضي: تفعيله افتراضياً لتطبيق المعيار العالمي الصارم للطبخة
+  const [isStrictBOMMode, setIsStrictBOMMode] = useState(true);
 
   // 📥 جلب بيانات جدول الأصناف (items) من السكيما للحصول على الـ id والأسعار والكميات الحالية
   const { data: stockResponse, isLoading, refetch } = useQuery({
@@ -34,7 +34,7 @@ const ProductionManager = ({ onBack }) => {
     ? bomsResponse
     : (bomsResponse?.data || bomsResponse?.items || []);
 
-  // 🔄 تصفية الخامات بناءً على سكيما items
+  // 🔄 تصفية الخامات بناءً على سكيما items المحدثة لمنع التداخل
   const rawMaterials = itemsList.filter(item => {
     if (!item) return false;
     const itemType = (item.item_type || '').toString().toLowerCase().trim();
@@ -47,7 +47,7 @@ const ProductionManager = ({ onBack }) => {
     );
   });
 
-  // 🍩 تصفية المنتجات الجاهزة والنهائية لـ زاد الخير (مثل المعمول والإنتاج التام)
+  // 🍩 تصفية المنتجات الجاهزة والنهائية لـ زاد الخير (التي تخضع لمعيار الـ BOM)
   const readyProducts = itemsList.filter(item => {
     if (!item) return false;
     const itemType = (item.item_type || '').toString().toLowerCase().trim();
@@ -111,7 +111,7 @@ const ProductionManager = ({ onBack }) => {
     }
   };
 
-  // 🚀 الدالة الكبرى المدمجة للترحيل الذكي (BOM أو مرن)
+  // 🚀 الدالة الكبرى المدمجة للترحيل الذكي والتحقق القياسي المستند لمعيار الطبخة العالمي
   const handleProcessProduction = async () => {
     const timestamp = Date.now();
     let consumedItemsQueue = [];
@@ -126,7 +126,7 @@ const ProductionManager = ({ onBack }) => {
 
     try {
       // ----------------------------------------------------
-      // 🛡️ المسار الأول: نظام التصنيع القياسي الصارم المستند إلى BOM
+      // 🛡️ المسار الأول: نظام التصنيع القياسي الصارم المستند إلى BOM والطبخة
       // ----------------------------------------------------
       if (isStrictBOMMode) {
         for (const [productId, rawValue] of Object.entries(productsInputs || {})) {
@@ -136,27 +136,41 @@ const ProductionManager = ({ onBack }) => {
           const productItem = itemsList.find(s => s.id.toString() === productId.toString());
           if (!productItem) continue;
 
-          targetDetailsText += `[${productItem.name}: كمية ${produceQty}] `;
-
-          producedItemsQueue.push({
-            item_id: productItem.id,
-            quantity: produceQty,
-            unit_price: 0 
-          });
+          // التحقق الأمني المعياري: منع تداخل المواد الخام ومعاملتها كمنتج تام
+          const itemType = (productItem.item_type || '').toString().toLowerCase().trim();
+          if (itemType === 'raw_material' || itemType === 'خامة' || itemType === 'مواد خام') {
+            alert(`⚠️ خرق معايير الأمان: الصنف (${productItem.name}) معرف في النظام كمادة خام ولا يمكن إصدار أمر إنتاج مباشر له!`);
+            return;
+          }
 
           const productBom = bomsList.find(b => b.product_id.toString() === productId.toString());
           
-          if (productBom && productBom.ingredients) {
+          // تطبيق معيار حساب الطبخة العالمي والتناسب الطردي (Batch Scaling Formula)
+          if (productBom && productBom.ingredients && productBom.ingredients.length > 0) {
+            targetDetailsText += `[${productItem.name}: كمية ${produceQty}] `;
+
+            producedItemsQueue.push({
+              item_id: productItem.id,
+              quantity: produceQty,
+              unit_price: 0 
+            });
+
             for (const ingredient of productBom.ingredients) {
-              const calculatedRequiredQty = (produceQty / parseFloat(productBom.base_quantity || 1)) * parseFloat(ingredient.required_quantity);
+              const baseQty = parseFloat(productBom.base_quantity || 1);
+              const requiredIngredientQty = parseFloat(ingredient.required_quantity);
+              
+              // 🧮 معادلة الطبخة: (الكمية المنتجة فعلياً / كمية أساس الطبخة في المعادلة) * الكمية المطلوبة من الخامة
+              const calculatedRequiredQty = (produceQty / baseQty) * requiredIngredientQty;
+              
               const rawItem = itemsList.find(s => s.id.toString() === ingredient.raw_material_id.toString());
               if (!rawItem) continue;
 
               const availableQty = parseFloat(rawItem.available_quantity || 0);
               const costPrice = parseFloat(rawItem.cost_price || 0);
 
+              // التحقق من كفاية الرصيد في المخزن قبل خصم الطبخة تلقائياً
               if (availableQty < calculatedRequiredQty) {
-                alert(`⚠️ خطأ نظام صارم: عجز في المخزن للمادة الخام (${rawItem.name})\nالمطلوب تلقائياً: ${calculatedRequiredQty.toFixed(2)} | المتوفر: ${availableQty}`);
+                alert(`⚠️ عجز في مخزن الخامات للطبخة: المادة الخام (${rawItem.name})\nالمطلوب آلياً للتشغيل: ${calculatedRequiredQty.toFixed(2)} | المتوفر فعلياً: ${availableQty}`);
                 return;
               }
 
@@ -168,16 +182,18 @@ const ProductionManager = ({ onBack }) => {
               });
             }
           } else {
-            alert(`⚠️ النظام القياسي يمنع الإنتاج بدون معادلة! المنتج (${productItem.name}) ليس له BOM معرفة.`);
+            // المعيار القياسي يمنع إنتاج أي صنف تام مالم يكن لديه بطاقة تركيب فنية معتمدة للحلويات والمخابز
+            alert(`⚠️ النظام القياسي يمنع الإنتاج بدون معادلة! المنتج (${productItem.name}) ليس له معادلة تصنيع (BOM) أو مكونات داخلية معرفة للطبخة حالياً.`);
             return;
           }
         }
 
         if (producedItemsQueue.length === 0) {
-          alert("⚠️ يرجى تحديد كمية المنتج التام المراد إنتاجه أولاً.");
+          alert("⚠️ يرجى تحديد كمية المنتج التام (المنفذ فعلياً) لبدء احتساب تشغيلة الطبخة آلياً.");
           return;
         }
 
+        // توزيع تكلفة الخامات الكلية بالتناسب على المنتجات التامة المنتجة بالطبخة
         const totalUnits = producedItemsQueue.reduce((acc, curr) => acc + curr.quantity, 0);
         const costPerUnit = totalUnits > 0 ? (totalMaterialsCost / totalUnits) : 0;
         producedItemsQueue.forEach(p => {
@@ -225,7 +241,7 @@ const ProductionManager = ({ onBack }) => {
         }
 
         if (consumedItemsQueue.length === 0 && producedItemsQueue.length === 0) {
-          alert("⚠️ يرجى إدخال كميات لإتمام عملية الترحيل في الوضع المرن.");
+          alert("⚠️ يرجى إدخال كميات يدوية لإتمام عملية الترحيل في الوضع المرن.");
           return;
         }
 
@@ -251,7 +267,7 @@ const ProductionManager = ({ onBack }) => {
           paid_amount: totalMaterialsCost,
           remaining_amount: 0,
           description: isStrictBOMMode 
-            ? `خصم خامات تلقائي قياسي (BOM) لإنتاج: ${targetDetailsText}`
+            ? `خصم خامات تلقائي لمعيار الطبخة (BOM) لإنتاج المنتجات التالية: ${targetDetailsText}`
             : `سحب خامات تشغيل إنتاج يدوي - وردية ${formData.shift} بتاريخ ${formData.date}`
         });
 
@@ -280,7 +296,7 @@ const ProductionManager = ({ onBack }) => {
           paid_amount: finalAmount,
           remaining_amount: 0,
           description: isStrictBOMMode
-            ? `إيداع آلي للمنتج التام بناءً على معادلة التصنيع المعتمدة BOM.`
+            ? `إيداع آلي للمنتج التام بناءً على حسابات تشغيلة الطبخة القياسية المعالجة بسحابة زاد الخير.`
             : `إيداع خط الإنتاج التام اليدوي - وردية ${formData.shift} بتاريخ ${formData.date}`
         });
 
@@ -298,7 +314,7 @@ const ProductionManager = ({ onBack }) => {
       await queryClient.invalidateQueries({ queryKey: ['stock'] });
 
       alert(isStrictBOMMode 
-        ? `✅ [نظام ERP القياسي]: تم احتساب المعادلات وخصم الخامات وإيداع المنتج التام سحابياً بنجاح!`
+        ? `✅ [نظام زاد الخير القياسي]: تم احتساب معادلة الطبخة بنجاح، وخصم الخامات (سكر/بلح)، وإيداع المنتج التام بالكامل!`
         : `✅ [النظام المرن]: تم ترحيل كميات خط الإنتاج بنجاح!`
       );
       
@@ -307,12 +323,11 @@ const ProductionManager = ({ onBack }) => {
       if (onBack) onBack();
 
     } catch (error) {
-      console.error("❌ خطأ عملية الترحيل الموحدة:", error);
-      alert("🚨 فشل الترحيل السحابي، يرجى مراجعة اتصال السيرفر.");
+      console.error("❌ خطأ عملية الترحيل الموحدة لمصنع الأغذية:", error);
+      alert("🚨 فشل الترحيل السحابي، يرجى مراجعة اتصال السيرفر مع سحابة زاد الخير.");
     }
   };
 
-  // 📝 تصميم كائنات الـ CSS لضمان عدم وجود تداخل وفشل الـ build على Vercel
   const inputStyle = {
     width: '100%', padding: '10px 12px', borderRadius: '12px', border: '2px solid #e2e8f0',
     fontSize: '15px', fontWeight: 'bold', textAlign: 'center', outline: 'none', color: '#1e293b', boxSizing: 'border-box'
@@ -363,7 +378,7 @@ const ProductionManager = ({ onBack }) => {
             backgroundColor: isStrictBOMMode ? '#d1fae5' : '#fef3c7',
             color: isStrictBOMMode ? '#065f46' : '#92400e'
           }}>
-            {isStrictBOMMode ? '⚙️ معادلات BOM القياسية' : '📝 إدخال مرن يدوي'}
+            {isStrictBOMMode ? '⚙️ معادلات الطبخة القياسية BOM' : '📝 إدخال مرن يدوي'}
           </span>
         </div>
       </div>
@@ -442,7 +457,7 @@ const ProductionManager = ({ onBack }) => {
           )}
         </div>
 
-        {/* 2) شق المواد الخام التفاعلي الحركي بناءً على زر التبديل */}
+        {/* 2) شق المواد الخام التفاعلي الحركي بناءً على زر التبديل وعزل الحساب التلقائي */}
         {!isStrictBOMMode ? (
           <div style={cardStyle}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '15px', borderBottom: '1px solid #e2e8f0', paddingBottom: '10px' }}>
@@ -474,9 +489,9 @@ const ProductionManager = ({ onBack }) => {
         ) : (
           <div style={{ ...cardStyle, background: 'linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%)', border: '2px dashed #a7f3d0', textAlign: 'center', padding: '32px 20px' }}>
             <div style={{ width: '56px', height: '56px', borderRadius: '50%', backgroundColor: '#d1fae5', color: '#065f46', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '24px', margin: '0 auto 16px auto' }}>⚙️</div>
-            <h4 style={{ margin: '0 0 6px 0', color: '#064e3b', fontSize: '16px', fontWeight: '700' }}>الربط الآلي للمخازن نشط</h4>
-            <p style={{ margin: 0, fontSize: '13px', color: '#047857', lineHeight: '1.6', maxWidth: '480px', margin: '0 auto' }}>
-              لقد قمت بتفعيل نظام الشركات الكبرى الصارم. لا داعي لهدر وقت العمال في رصد واحتساب كميات الدقيق، السكر أو العجوة يدوياً. بمجرد ضغط حفظ، سيقوم تطبيق <span style={{ fontWeight: '700' }}>زاد الخير</span> بسحب واحتساب المواد الخام من جرد المخزن تلقائياً خلف الكواليس بناءً على معادلات الـ BOM.
+            <h4 style={{ margin: '0 0 6px 0', color: '#064e3b', fontSize: '16px', fontWeight: '700' }}>معيار الطبخة والربط الآلي نشط حالياً</h4>
+            <p style={{ margin: 0, fontSize: '13px', color: '#047857', lineHeight: '1.6', maxWidth: '520px', margin: '0 auto' }}>
+              تطبيق <span style={{ fontWeight: '700' }}>زاد الخير</span> يعمل بنظام مصانع الحلويات والمخابز القياسي. عند ترحيل الإنتاج، سيقوم النظام تلقائياً باحتساب التناسب الطردي لمكونات الطبخة (مثل السكر، البلح، الدقيق) وخصمها سحابياً من جرد المخزن فوراً تبعاً لحجم الـ BOM المسجل.
             </p>
           </div>
         )}
