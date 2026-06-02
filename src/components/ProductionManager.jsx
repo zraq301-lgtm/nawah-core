@@ -12,7 +12,7 @@ const ProductionManager = ({ onBack }) => {
   // 🎛️ وضع التصنيع الافتراضي: تفعيله افتراضياً لتطبيق المعيار العالمي الصارم للطبخة
   const [isStrictBOMMode, setIsStrictBOMMode] = useState(true);
 
-  // 📥 جلب بيانات جدول الأصناف (items) من السكيما للحصول على الـ id والأسعار والكميات الحالية
+  // 📥 جلب بيانات جدول الأصناف (items) من السكيما
   const { data: stockResponse, isLoading, refetch } = useQuery({
     queryKey: ['stock'],
     queryFn: () => apiService.getData('stock'),
@@ -34,7 +34,7 @@ const ProductionManager = ({ onBack }) => {
     ? bomsResponse
     : (bomsResponse?.data || bomsResponse?.items || []);
 
-  // 🔄 تصفية الخامات بناءً على سكيما items المحدثة لمنع التداخل
+  // 🔄 تصفية الخامات بناءً على سكيما items المحدثة
   const rawMaterials = itemsList.filter(item => {
     if (!item) return false;
     const itemType = (item.item_type || '').toString().toLowerCase().trim();
@@ -47,7 +47,7 @@ const ProductionManager = ({ onBack }) => {
     );
   });
 
-  // 🍩 تصفية المنتجات الجاهزة والنهائية لـ زاد الخير (التي تخضع لمعيار الـ BOM)
+  // 🍩 تصفية المنتجات الجاهزة والنهائية لـ زاد الخير
   const readyProducts = itemsList.filter(item => {
     if (!item) return false;
     const itemType = (item.item_type || '').toString().toLowerCase().trim();
@@ -60,9 +60,9 @@ const ProductionManager = ({ onBack }) => {
   const [productsInputs, setProductsInputs] = useState({});
   const [targetInputs, setTargetInputs] = useState({}); // 🎯 كميات الإنتاج المطلوبة/المستهدفة
   
-  // 🆕 حالات شاشة إنتاج الوحدات الجديدة بالأسفل
-  const [customProductName, setCustomProductName] = useState('');
-  const [unitsToProduce, setUnitsToProduce] = useState(0);
+  // 🆕 حالات شاشة إنتاج الوحدات المطلوبة بالأسفل (ربط تلقائي ذكي)
+  const [selectedProductId, setSelectedProductId] = useState('');
+  const [unitsToProduce, setUnitsToProduce] = useState('');
 
   const [formData, setFormData] = useState({
     date: new Date().toISOString().split('T')[0],
@@ -71,7 +71,7 @@ const ProductionManager = ({ onBack }) => {
 
   const shifts = ['الأولى', 'الثانية', 'السهرة', 'إضافي'];
 
-  // تهيئة قيم المدخلات فور جلب البيانات من السيرفر دون مسح مدخلات المستخدم الحالية
+  // تهيئة قيم المدخلات فور جلب البيانات من السيرفر
   useEffect(() => {
     if (itemsList.length > 0) {
       setIngredientsInputs(prev => {
@@ -97,6 +97,11 @@ const ProductionManager = ({ onBack }) => {
         });
         return updated;
       });
+
+      // تعيين أول منتج كخيار افتراضي في القائمة المنسدلة لشاشة التشغيل التلقائي بالأسفل
+      if (readyProducts.length > 0 && !selectedProductId) {
+        setSelectedProductId(readyProducts[0].id.toString());
+      }
     }
   }, [stockResponse]);
 
@@ -111,7 +116,7 @@ const ProductionManager = ({ onBack }) => {
     }
   };
 
-  // 🚀 الدالة الكبرى المدمجة للترحيل الذكي والتحقق القياسي المستند لمعيار الطبخة العالمي
+  // 🚀 الدالة الكبرى المدمجة للترحيل الذكي والربط التلقائي المباشر بجدول الـ BOM
   const handleProcessProduction = async () => {
     const timestamp = Date.now();
     let consumedItemsQueue = [];
@@ -124,28 +129,48 @@ const ProductionManager = ({ onBack }) => {
       return;
     }
 
+    // 🏗️ تجميع المنتجات المراد إنتاجها: سواء من الشبكة العلوية أو من شاشة الإنتاج الآلية بالأسفل
+    let productionOrders = {};
+
+    // 1. قراءة الكميات من حقول الشبكة العلوية (إن وجدت)
+    for (const [productId, rawValue] of Object.entries(productsInputs || {})) {
+      const qty = rawValue === '' ? 0 : parseFloat(rawValue);
+      if (qty > 0) {
+        productionOrders[productId] = (productionOrders[productId] || 0) + qty;
+      }
+    }
+
+    // 2. دمج الكمية المدخلة تلقائياً من الشاشة السفلية وإلحاقها بأوامر التشغيل فوراً
+    const autoQty = unitsToProduce === '' ? 0 : parseFloat(unitsToProduce);
+    if (selectedProductId && autoQty > 0) {
+      productionOrders[selectedProductId] = (productionOrders[selectedProductId] || 0) + autoQty;
+    }
+
     try {
       // ----------------------------------------------------
-      // 🛡️ المسار الأول: نظام التصنيع القياسي الصارم المستند إلى BOM والطبخة
+      // 🛡️ المسار الأول: نظام التصنيع القياسي الصارم المستند إلى BOM والطبخة آلياً
       // ----------------------------------------------------
       if (isStrictBOMMode) {
-        for (const [productId, rawValue] of Object.entries(productsInputs || {})) {
-          const produceQty = rawValue === '' ? 0 : parseFloat(rawValue);
-          if (produceQty <= 0) continue;
+        
+        if (Object.keys(productionOrders).length === 0) {
+          alert("⚠️ يرجى تحديد كمية للمنتج المراد إنتاجه (سواء في حقل المنفذ الفعلي أو شاشة التشغيل بالأسفل) لبدء السحب التلقائي.");
+          return;
+        }
 
+        for (const [productId, produceQty] of Object.entries(productionOrders)) {
           const productItem = itemsList.find(s => s.id.toString() === productId.toString());
           if (!productItem) continue;
 
-          // التحقق الأمني المعياري: منع تداخل المواد الخام ومعاملتها كمنتج تام
+          // التحقق الأمني المعياري
           const itemType = (productItem.item_type || '').toString().toLowerCase().trim();
           if (itemType === 'raw_material' || itemType === 'خامة' || itemType === 'مواد خام') {
-            alert(`⚠️ خرق معايير الأمان: الصنف (${productItem.name}) معرف في النظام كمادة خام ولا يمكن إصدار أمر إنتاج مباشر له!`);
+            alert(`⚠️ خرق معايير الأمان: الصنف (${productItem.name}) معرف كمادة خام ولا يمكن إصدار أمر إنتاج له!`);
             return;
           }
 
+          // البحث عن الـ BOM المرتبط بالمنتج
           const productBom = bomsList.find(b => b.product_id.toString() === productId.toString());
           
-          // تطبيق معيار حساب الطبخة العالمي والتناسب الطردي (Batch Scaling Formula)
           if (productBom && productBom.ingredients && productBom.ingredients.length > 0) {
             targetDetailsText += `[${productItem.name}: كمية ${produceQty}] `;
 
@@ -159,7 +184,7 @@ const ProductionManager = ({ onBack }) => {
               const baseQty = parseFloat(productBom.base_quantity || 1);
               const requiredIngredientQty = parseFloat(ingredient.required_quantity);
               
-              // 🧮 معادلة الطبخة: (الكمية المنتجة فعلياً / كمية أساس الطبخة في المعادلة) * الكمية المطلوبة من الخامة
+              // 🧮 معادلة التناسب الآلي للطبخة بدون تدخل يدوي
               const calculatedRequiredQty = (produceQty / baseQty) * requiredIngredientQty;
               
               const rawItem = itemsList.find(s => s.id.toString() === ingredient.raw_material_id.toString());
@@ -168,7 +193,7 @@ const ProductionManager = ({ onBack }) => {
               const availableQty = parseFloat(rawItem.available_quantity || 0);
               const costPrice = parseFloat(rawItem.cost_price || 0);
 
-              // التحقق من كفاية الرصيد في المخزن قبل خصم الطبخة تلقائياً
+              // التحقق من كفاية الرصيد في المخزن
               if (availableQty < calculatedRequiredQty) {
                 alert(`⚠️ عجز في مخزن الخامات للطبخة: المادة الخام (${rawItem.name})\nالمطلوب آلياً للتشغيل: ${calculatedRequiredQty.toFixed(2)} | المتوفر فعلياً: ${availableQty}`);
                 return;
@@ -182,18 +207,12 @@ const ProductionManager = ({ onBack }) => {
               });
             }
           } else {
-            // المعيار القياسي يمنع إنتاج أي صنف تام مالم يكن لديه بطاقة تركيب فنية معتمدة للحلويات والمخابز
-            alert(`⚠️ النظام القياسي يمنع الإنتاج بدون معادلة! المنتج (${productItem.name}) ليس له معادلة تصنيع (BOM) أو مكونات داخلية معرفة للطبخة حالياً.`);
+            alert(`⚠️ النظام القياسي يمنع الإنتاج التلقائي بدون معادلة! المنتج (${productItem.name}) ليس له معادلة تصنيع (BOM) معتمدة بالسيرفر.`);
             return;
           }
         }
 
-        if (producedItemsQueue.length === 0) {
-          alert("⚠️ يرجى تحديد كمية المنتج التام (المنفذ فعلياً) لبدء احتساب تشغيلة الطبخة آلياً.");
-          return;
-        }
-
-        // توزيع تكلفة الخامات الكلية بالتناسب على المنتجات التامة المنتجة بالطبخة
+        // توزيع التكلفة بالتناسب على الوحدات المنتجة
         const totalUnits = producedItemsQueue.reduce((acc, curr) => acc + curr.quantity, 0);
         const costPerUnit = totalUnits > 0 ? (totalMaterialsCost / totalUnits) : 0;
         producedItemsQueue.forEach(p => {
@@ -202,7 +221,7 @@ const ProductionManager = ({ onBack }) => {
 
       } 
       // ----------------------------------------------------
-      // 🔄 المسار الثاني: النظام المرن الحالي (يدوي وحر)
+      // 🔄 المسار الثاني: النظام المرن التقليدي (يدوي وحر)
       // ----------------------------------------------------
       else {
         for (const [itemId, rawValue] of Object.entries(ingredientsInputs || {})) {
@@ -225,19 +244,17 @@ const ProductionManager = ({ onBack }) => {
         }
 
         let totalEnteredQuantity = 0;
-        for (const [itemId, rawValue] of Object.entries(productsInputs || {})) {
-          const quantity = rawValue === '' ? 0 : parseFloat(rawValue);
-          if (quantity <= 0) continue;
-
+        // دمج الكميات اليدوية والآلية السفلية في الوضع المرن أيضاً
+        for (const [itemId, qty] of Object.entries(productionOrders)) {
           const stockItem = itemsList.find(s => s.id.toString() === itemId.toString());
           if (!stockItem) continue;
 
           const targetValue = targetInputs[itemId] || 0;
           const targetQty = targetValue === '' ? 0 : parseFloat(targetValue);
-          targetDetailsText += `[${stockItem.name}: مطلوب ${targetQty} -> تم ${quantity}] `;
+          targetDetailsText += `[${stockItem.name}: مطلوب ${targetQty} -> تم ${qty}] `;
 
-          totalEnteredQuantity += quantity;
-          producedItemsQueue.push({ item_id: stockItem.id, quantity: quantity, unit_price: 0 });
+          totalEnteredQuantity += qty;
+          producedItemsQueue.push({ item_id: stockItem.id, quantity: qty, unit_price: 0 });
         }
 
         if (consumedItemsQueue.length === 0 && producedItemsQueue.length === 0) {
@@ -255,9 +272,8 @@ const ProductionManager = ({ onBack }) => {
       // ----------------------------------------------------
       // 🟩 ترحيل الفواتير السحابية الموحدة (Transactions)
       // ----------------------------------------------------
-      let saleInvoiceNumber = "N/A";
       if (consumedItemsQueue.length > 0) {
-        saleInvoiceNumber = isStrictBOMMode ? `RAW-AUTO-${timestamp}` : `RAW-OUT-${timestamp}`;
+        const saleInvoiceNumber = isStrictBOMMode ? `RAW-AUTO-${timestamp}` : `RAW-OUT-${timestamp}`;
         const saleInvoiceRes = await apiService.postData('invoices', {
           invoice_number: saleInvoiceNumber,
           invoice_type: 'sale',
@@ -267,7 +283,7 @@ const ProductionManager = ({ onBack }) => {
           paid_amount: totalMaterialsCost,
           remaining_amount: 0,
           description: isStrictBOMMode 
-            ? `خصم خامات تلقائي لمعيار الطبخة (BOM) لإنتاج المنتجات التالية: ${targetDetailsText}`
+            ? `خصم خامات تلقائي وبدون مدخلات يدوية لمعيار الطبخة (BOM) لإنتاج: ${targetDetailsText}`
             : `سحب خامات تشغيل إنتاج يدوي - وردية ${formData.shift} بتاريخ ${formData.date}`
         });
 
@@ -282,9 +298,8 @@ const ProductionManager = ({ onBack }) => {
         }
       }
 
-      let purchaseInvoiceNumber = "N/A";
       if (producedItemsQueue.length > 0) {
-        purchaseInvoiceNumber = isStrictBOMMode ? `PROD-AUTO-${timestamp}` : `PROD-IN-${timestamp}`;
+        const purchaseInvoiceNumber = isStrictBOMMode ? `PROD-AUTO-${timestamp}` : `PROD-IN-${timestamp}`;
         const finalAmount = totalMaterialsCost > 0 ? totalMaterialsCost : producedItemsQueue.reduce((acc, curr) => acc + (curr.quantity * curr.unit_price), 0);
         
         const purchaseInvoiceRes = await apiService.postData('invoices', {
@@ -296,7 +311,7 @@ const ProductionManager = ({ onBack }) => {
           paid_amount: finalAmount,
           remaining_amount: 0,
           description: isStrictBOMMode
-            ? `إيداع آلي للمنتج التام بناءً على حسابات تشغيلة الطبخة القياسية المعالجة بسحابة زاد الخير.`
+            ? `إيداع آلي وربط مباشر للمنتج التام بناءً على حسابات تشغيلة الطبخة القياسية المعالجة بسحابة زاد الخير.`
             : `إيداع خط الإنتاج التام اليدوي - وردية ${formData.shift} بتاريخ ${formData.date}`
         });
 
@@ -314,12 +329,13 @@ const ProductionManager = ({ onBack }) => {
       await queryClient.invalidateQueries({ queryKey: ['stock'] });
 
       alert(isStrictBOMMode 
-        ? `✅ [نظام زاد الخير القياسي]: تم احتساب معادلة الطبخة بنجاح، وخصم الخامات (سكر/بلح)، وإيداع المنتج التام بالكامل!`
+        ? `✅ [نظام زاد الخير القياسي]: تم الربط الآلي بجميع المواد مباشرة! تم سحب الخامات بدقة وتحديث المخزن والمنتج التام سحابياً فوراً.`
         : `✅ [النظام المرن]: تم ترحيل كميات خط الإنتاج بنجاح!`
       );
       
       setIngredientsInputs({});
       setProductsInputs({});
+      setUnitsToProduce('');
       if (onBack) onBack();
 
     } catch (error) {
@@ -347,7 +363,7 @@ const ProductionManager = ({ onBack }) => {
   return (
     <div style={{ direction: 'rtl', padding: '24px', backgroundColor: '#f1f5f9', minHeight: '100vh', fontFamily: "'Tajawal', sans-serif", maxWidth: '1200px', margin: '0 auto', boxSizing: 'border-box' }}>
       
-      {/* 🎛️ أولاً: لوحة التبديل السريع بداخل نفس الشاشة بالتنسيق الصافي */}
+      {/* 🎛️ لوحة التبديل السريع */}
       <div style={toggleContainerStyle}>
         <div style={{ display: 'flex', flexDirection: 'column' }}>
           <h2 style={{ margin: 0, fontSize: '20px', fontWeight: '700', color: '#1e293b' }}>إدارة خط الإنتاج والوردية</h2>
@@ -383,7 +399,7 @@ const ProductionManager = ({ onBack }) => {
         </div>
       </div>
 
-      {/* ثانياً: قسم معلومات الوردية */}
+      {/* قسم معلومات الوردية */}
       <div style={cardStyle}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -409,14 +425,14 @@ const ProductionManager = ({ onBack }) => {
         </div>
       </div>
 
-      {/* ثالثاً: عرض شبكة الجداول التفاعلية المشتركة */}
+      {/* عرض شبكة الجداول */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '24px', alignItems: 'start' }}>
         
-        {/* 1) جدول رصد الإنتاج التام (يظهر دائماً بجميع الأنماط) */}
+        {/* 1) جدول رصد الإنتاج التام العلوي للشبكة */}
         <div style={{ ...cardStyle, backgroundColor: '#1e293b', color: '#fff' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '15px', borderBottom: '1px solid #475569', paddingBottom: '10px' }}>
             <Box size={20} color="#3b82f6" />
-            <h3 style={{ margin: 0, color: '#f8fafc', fontSize: '16px', fontWeight: '700' }}>📋 الكميات والمنتجات المنفذة فعلياً</h3>
+            <h3 style={{ margin: 0, color: '#f8fafc', fontSize: '16px', fontWeight: '700' }}>📋 الكميات والمنتجات المنفذة فعلياً (شبكة تحكم اختيارية)</h3>
           </div>
           
           {isLoading ? (
@@ -457,7 +473,7 @@ const ProductionManager = ({ onBack }) => {
           )}
         </div>
 
-        {/* 2) شق المواد الخام التفاعلي الحركي بناءً على زر التبديل وعزل الحساب التلقائي */}
+        {/* 2) شق المواد الخام يدوياً في الوضع المرن */}
         {!isStrictBOMMode ? (
           <div style={cardStyle}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '15px', borderBottom: '1px solid #e2e8f0', paddingBottom: '10px' }}>
@@ -491,34 +507,36 @@ const ProductionManager = ({ onBack }) => {
             <div style={{ width: '56px', height: '56px', borderRadius: '50%', backgroundColor: '#d1fae5', color: '#065f46', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '24px', margin: '0 auto 16px auto' }}>⚙️</div>
             <h4 style={{ margin: '0 0 6px 0', color: '#064e3b', fontSize: '16px', fontWeight: '700' }}>معيار الطبخة والربط الآلي نشط حالياً</h4>
             <p style={{ margin: 0, fontSize: '13px', color: '#047857', lineHeight: '1.6', maxWidth: '520px', margin: '0 auto' }}>
-              تطبيق <span style={{ fontWeight: '700' }}>زاد الخير</span> يعمل بنظام مصانع الحلويات والمخابز القياسي. عند ترحيل الإنتاج، سيقوم النظام تلقائياً باحتساب التناسب الطردي لمكونات الطبخة (مثل السكر، البلح، الدقيق) وخصمها سحابياً من جرد المخزن فوراً تبعاً لحجم الـ BOM المسجل.
+              تطبيق <span style={{ fontWeight: '700' }}>زاد الخير</span> مربوط بجدول الـ BOM سحابياً. بمجرد كتابة عدد الوحدات بالأسفل، يقوم المعالج برصد وتوزيع المكونات ونسب الهدر تلقائياً دون أي حاجة لمدخلات الخامات اليدوية.
             </p>
           </div>
         )}
 
-        {/* 3) شاشة الإنتاج الإضافية للوحدات المخصصة */}
+        {/* 3) شاشة تشغيل وإنتاج الوحدات المطلوبة (تم تعديلها لقائمة منسدلة من أصناف السيرفر للربط الآلي) */}
         <div style={{ ...cardStyle, border: '2px solid #e2e8f0' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '15px' }}>
             <PackagePlus size={22} color="#4f46e5" />
-            <h3 style={{ margin: 0, color: '#1e293b', fontSize: '16px', fontWeight: '700' }}>🎯 شاشة تشغيل وإنتاج الوحدات المطلوبة</h3>
+            <h3 style={{ margin: 0, color: '#1e293b', fontSize: '16px', fontWeight: '700' }}>🎯 شاشة تشغيل وإنتاج الوحدات المطلوبة (الربط المباشر للطبخة)</h3>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
             <div>
-              <label style={{ display: 'block', fontSize: '12px', marginBottom: '6px', color: '#64748b', fontWeight: '600' }}>اسم المنتج المطلوب إنتاجه</label>
-              <input 
-                type="text" 
-                placeholder="مثال: معمول الفاخر" 
-                value={customProductName} 
-                onChange={(e) => setCustomProductName(e.target.value)} 
-                style={{ ...inputStyle, textAlign: 'right', fontWeight: 'normal' }} 
-              />
+              <label style={{ display: 'block', fontSize: '12px', marginBottom: '6px', color: '#64748b', fontWeight: '600' }}>اسم المنتج المراد إنتاجه بالمعادلة</label>
+              <select
+                value={selectedProductId}
+                onChange={(e) => setSelectedProductId(e.target.value)}
+                style={inputStyle}
+              >
+                {readyProducts.map(prod => (
+                  <option key={prod.id} value={prod.id}>{prod.name}</option>
+                ))}
+              </select>
             </div>
             <div>
               <label style={{ display: 'block', fontSize: '12px', marginBottom: '6px', color: '#64748b', fontWeight: '600' }}>عدد الوحدات المراد إنتاجها</label>
               <input 
                 type="number" 
-                placeholder="0" 
-                value={unitsToProduce || ''} 
+                placeholder="أدخل الكمية ليتم السحب فوراً" 
+                value={unitsToProduce} 
                 onChange={(e) => setUnitsToProduce(e.target.value)} 
                 style={inputStyle} 
               />
@@ -536,7 +554,7 @@ const ProductionManager = ({ onBack }) => {
         <Save size={18} /> ترحيل وإنتاج العمليات المترابطة وتفعيل الـ Trigger
       </button>
 
-      {/* زر العودة للشاشة السابقة */}
+      {/* زر العودة */}
       <button onClick={onBack} style={{ width: '100%', background: '#fff', border: '1px solid #cbd5e1', padding: '14px', borderRadius: '15px', color: '#64748b', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}><ArrowLeft size={16} /> العودة للشاشة السابقة</button>
     </div>
   );
