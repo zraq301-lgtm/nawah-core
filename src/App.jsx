@@ -28,8 +28,8 @@ import Customers from './components/Customers';
 import StaffManagement from './components/StaffManagement';
 import Settings from './components/Settings';
 
-// 🚀 استيراد مكون واجهة مدخلات الطبخة الجديد
-import RecipeManager from './components/RecipeManager';
+// 🚀 تصحيح الاستيراد: المكون الفعلي لإدارة تركيبات فواتير المواد (BOM)
+import BomSetupManager from './components/BomSetupManager';
 
 // ⚙️ إنشاء كائن الـ Query Client المركزي وإعداده لبيئة الهاتف
 const queryClient = new QueryClient({
@@ -400,9 +400,10 @@ const AppContent = () => {
             onRefresh={syncCloudData}
           />
         );
-      case 'recipes': // 🚀 واجهة الطبخات المستحدثة داخل السيستم
+      case 'recipes': // 🚀 توجيه واستدعاء الملف الصحيح لإدارة تركيبات الأكلات وفواتير المواد
+      case 'bom':
         return (
-          <RecipeManager 
+          <BomSetupManager 
             onBack={backToDashboard}
             tenantSchema={tenantSchema}
             stock={stock}
@@ -547,7 +548,7 @@ const AppContent = () => {
         </div>
       )}
 
-      {/* تم إزالة شريط التنقل السفلي بالكامل، وعرض الصفحات يتم عبر وحدة التحكم الخارجية */}
+      {/* شريط الأزرار ملغي تماماً والتحكم والصفحات تتبع وحدة التحكم الخارجية */}
       <main style={{ padding: '16px' }}>
         {renderPage()}
       </main>
