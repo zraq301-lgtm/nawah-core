@@ -5,7 +5,7 @@ import {
   ShoppingCart, Tag, Factory, Warehouse, Trash2,
   Wallet, Truck, BarChart3, FileText, Users,
   TrendingUp, TrendingDown, DollarSign, Package, Settings, UserCheck,
-  Cpu, Loader2
+  Cpu, Loader2, Layers
 } from 'lucide-react';
 
 const Dashboard = ({ 
@@ -21,6 +21,7 @@ const Dashboard = ({
     { id: 'purchases', title: 'المشتريات', icon: <ShoppingCart size={28}/>, color: '#e67e22' },
     { id: 'sales', title: 'المبيعات', icon: <Tag size={28}/>, color: '#2ecc71' },
     { id: 'production', title: 'الإنتاج', icon: <Factory size={28}/>, color: '#f59e0b' },
+    { id: 'bom_setup', title: 'تهيئة الطبخات', icon: <Layers size={28}/>, color: '#6366f1' }, // زر استدعاء شاشة الطبخات الجديدة
     { id: 'inventory', title: 'المخزن', icon: <Warehouse size={28}/>, color: '#3498db' },
     { id: 'waste', title: 'الهالك', icon: <Trash2 size={28}/>, color: '#e74c3c' },
     { id: 'expenses', title: 'المصروفات', icon: <Wallet size={28}/>, color: '#7f8c8d' },
