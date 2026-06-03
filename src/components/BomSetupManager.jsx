@@ -1,13 +1,13 @@
 import React, { useState } from 'react';
 import { Save, Plus, Trash2, ArrowLeft, Layers, Scale, Loader2, Sparkles, AlertTriangle } from 'lucide-react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiService } from '../services/apiService';
 import Swal from 'sweetalert2';
 
 const BomSetupManager = ({ onBack }) => {
   const queryClient = useQueryClient();
 
-  // 📥 1. جلب كافة الأصناف من المخزن لتصنيفها (منتجات نهائية أو خامات)
+  // 📥 1. جلب كافة الأصناف من المخزن لتصنيفها
   const { data: stockResponse, isLoading } = useQuery({
     queryKey: ['stock'],
     queryFn: () => apiService.getData('items'),
@@ -68,10 +68,13 @@ const BomSetupManager = ({ onBack }) => {
 
   // 🚀 إرسال وحفظ المعادلة والطبخة كاملة لقاعدة البيانات
   const handleSaveBom = async () => {
-    if (!selectedProductId || !bomName.trim() || parseFloat(baseQuantity) <= 0) {
+    // طباعة القيم في الـ Console لمعاينتها أثناء العمل على الموبايل ومعرفة أي حقل يتسبب في المشكلة
+    console.log("حالة الحقول عند الحفظ:", { selectedProductId, bomName, baseQuantity, ingredients });
+
+    if (!selectedProductId || selectedProductId === "" || !bomName.trim() || !baseQuantity || parseFloat(baseQuantity) <= 0) {
       Swal.fire({
         title: 'تنبيــه',
-        text: 'يرجى اختيار المنتج النهائي، كتابة اسم الطبخة، وتحديد الكمية المعيارية.',
+        text: 'يرجى اختيار المنتج النهائي، كتابة اسم الطبخة، وتحديد الكمية المعيارية بشكل صحيح.',
         icon: 'warning',
         confirmButtonText: 'مفهوم',
         confirmButtonColor: '#6366f1'
@@ -160,7 +163,6 @@ const BomSetupManager = ({ onBack }) => {
     }
   };
 
-  // أنماط التصميم الموحدة والحديثة
   const styles = {
     card: {
       backgroundColor: '#fff',
@@ -168,8 +170,7 @@ const BomSetupManager = ({ onBack }) => {
       padding: '24px',
       boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.02), 0 8px 10px -6px rgba(0, 0, 0, 0.02)',
       marginBottom: '24px',
-      border: '1px solid #f1f5f9',
-      transition: 'all 0.3s ease'
+      border: '1px solid #f1f5f9'
     },
     label: {
       display: 'block',
@@ -190,7 +191,6 @@ const BomSetupManager = ({ onBack }) => {
       color: '#1e293b',
       backgroundColor: '#f8fafc',
       boxSizing: 'border-box',
-      transition: 'all 0.2s ease',
       fontFamily: 'Tajawal, sans-serif'
     }
   };
@@ -198,18 +198,18 @@ const BomSetupManager = ({ onBack }) => {
   return (
     <div style={{ direction: 'rtl', padding: '16px', backgroundColor: '#f4f7fe', minHeight: '100vh', maxWidth: '800px', margin: '0 auto', boxSizing: 'border-box', fontFamily: 'Tajawal, sans-serif' }}>
       
-      {/* هيدر الشاشة الاحترافي */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#fff', padding: '16px 20px', borderRadius: '24px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.01)', marginBottom: '20px', border: '1px solid #f1f5f9' }}>
+      {/* هيدر الشاشة */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#fff', padding: '16px 20px', borderRadius: '24px', marginBottom: '20px', border: '1px solid #f1f5f9' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <div style={{ background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)', padding: '12px', borderRadius: '16px', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <Layers size={22} />
           </div>
           <div>
             <h2 style={{ margin: 0, fontSize: '18px', fontWeight: '800', color: '#0f172a' }}>تهيئة وتركيب الطبخات (BOM)</h2>
-            <p style={{ margin: '4px 0 0 0', fontSize: '12px', color: '#64748b', fontWeight: '500' }}>اربط المنتجات الجاهزة بمكوناتها ومعاييرها الثابتة</p>
+            <p style={{ margin: '4px 0 0 0', fontSize: '12px', color: '#64748b', fontWeight: '500' }}>زاد الخير • ربط المنتجات بالمعايير</p>
           </div>
         </div>
-        <button onClick={onBack} style={{ background: '#f1f5f9', border: 'none', cursor: 'pointer', color: '#64748b', display: 'flex', alignItems: 'center', gap: '6px', padding: '10px 14px', borderRadius: '14px', fontSize: '13px', fontWeight: '700', transition: 'all 0.2s' }}>
+        <button onClick={onBack} style={{ background: '#f1f5f9', border: 'none', cursor: 'pointer', color: '#64748b', display: 'flex', alignItems: 'center', gap: '6px', padding: '10px 14px', borderRadius: '14px', fontSize: '13px', fontWeight: '700' }}>
           <ArrowLeft size={16} /> عودة
         </button>
       </div>
@@ -222,18 +222,19 @@ const BomSetupManager = ({ onBack }) => {
         </div>
         
         {isLoading ? (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px', padding: '30px 0', color: '#4f46e5', fontWeight: '700', fontSize: '14px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px', padding: '30px 0', color: '#4f46e5', fontWeight: '700' }}>
             <Loader2 size={24} style={{ animation: 'spin 1s linear infinite' }} />
-            <span>جاري جلب قائمة الأصناف والمواد...</span>
+            <span>جاري جلب قائمة الأصناف...</span>
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
             <div>
               <label style={styles.label}>المنتج النهائي الصادر</label>
+              {/* قمنا بإزالة الإخفاء الافتراضي والـ appearance لضمان عمل الـ select على متصفحات الهواتف بشكل طبيعي وقراءة القيمة */}
               <select 
                 value={selectedProductId} 
                 onChange={(e) => setSelectedProductId(e.target.value)} 
-                style={{ ...styles.input, appearance: 'none', cursor: 'pointer' }}
+                style={{ ...styles.input, backgroundColor: '#fff', cursor: 'pointer' }}
               >
                 <option value="">-- حدد صنف تام (مثل: معمول عجوة) --</option>
                 {finalProducts.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
@@ -264,9 +265,6 @@ const BomSetupManager = ({ onBack }) => {
                 <Scale size={18} color="#94a3b8" style={{ position: 'absolute', left: '16px' }} />
                 <span style={{ position: 'absolute', right: '16px', fontSize: '13px', fontWeight: 'bold', color: '#64748b' }}>كجم/وحدة</span>
               </div>
-              <p style={{ color: '#64748b', margin: '6px 4px 0 0', fontSize: '11px', fontWeight: '500', lineHeight: '1.4' }}>
-                * القيمة الافتراضية <span style={{ color: '#6366f1', fontWeight: 'bold' }}>1.000</span> تعني أن المقادير المدخلة بالأسفل تكفي لإنتاج وحدة قياسية واحدة (أو كيلو واحد صافي).
-              </p>
             </div>
           </div>
         )}
@@ -282,7 +280,7 @@ const BomSetupManager = ({ onBack }) => {
           <button 
             type="button" 
             onClick={handleAddIngredient} 
-            style={{ backgroundColor: '#6366f1', color: '#fff', border: 'none', padding: '8px 14px', borderRadius: '12px', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', boxShadow: '0 4px 10px rgba(99, 102, 241, 0.2)', transition: 'all 0.2s' }}
+            style={{ backgroundColor: '#6366f1', color: '#fff', border: 'none', padding: '8px 14px', borderRadius: '12px', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
           >
             <Plus size={16} /> إضافة مادة خام
           </button>
@@ -291,37 +289,33 @@ const BomSetupManager = ({ onBack }) => {
         {ingredients.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '40px 16px', color: '#94a3b8', border: '2px dashed #e2e8f0', borderRadius: '20px', backgroundColor: '#f8fafc', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
             <AlertTriangle size={24} color="#94a3b8" />
-            <span style={{ fontSize: '13px', fontWeight: '700', color: '#64748b' }}>التركيبة فارغة حالياً</span>
-            <span style={{ fontSize: '11px', color: '#94a3b8' }}>اضغط على زر (إضافة مادة خام) للبدء في تركيب وبناء المقادير.</span>
+            <span style={{ fontSize: '13px', fontWeight: '700' }}>التركيبة فارغة حالياً</span>
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
             {ingredients.map((ing, index) => (
-              <div key={index} style={{ display: 'flex', flexDirection: 'column', gap: '12px', backgroundColor: '#f8fafc', padding: '16px', borderRadius: '20px', border: '1px solid #e2e8f0', position: 'relative' }}>
+              <div key={index} style={{ display: 'flex', flexDirection: 'column', gap: '12px', backgroundColor: '#f8fafc', padding: '16px', borderRadius: '20px', border: '1px solid #e2e8f0' }}>
                 
-                {/* هيدر الكارت لتحديد رقم المادة وحذفها بسهولة في الموبايل */}
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span style={{ fontSize: '11px', fontWeight: '800', color: '#6366f1', backgroundColor: '#e0e7ff', padding: '2px 8px', borderRadius: '6px' }}>مكون رقم #{index + 1}</span>
                   <button 
                     type="button" 
                     onClick={() => handleRemoveIngredient(index)} 
-                    style={{ background: '#fee2e2', border: 'none', color: '#ef4444', cursor: 'pointer', padding: '6px', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                    title="حذف المكون"
+                    style={{ background: '#fee2e2', border: 'none', color: '#ef4444', cursor: 'pointer', padding: '6px', borderRadius: '10px' }}
                   >
                     <Trash2 size={16} />
                   </button>
                 </div>
 
-                {/* حقول الإدخال داخل الكارت التفاعلي */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                  <div style={{ flex: '1' }}>
-                    <label style={{ ...styles.label, fontSize: '12px', marginBottom: '4px' }}>المادة الخام</label>
+                  <div>
+                    <label style={{ ...styles.label, fontSize: '12px' }}>المادة الخام</label>
                     <select 
                       value={ing.raw_material_id} 
                       onChange={(e) => handleIngredientChange(index, 'raw_material_id', e.target.value)} 
-                      style={{ ...styles.input, backgroundColor: '#fff', padding: '10px 12px' }}
+                      style={{ ...styles.input, backgroundColor: '#fff' }}
                     >
-                      <option value="">-- اختر مادة خام من المستودع --</option>
+                      <option value="">-- اختر مادة خام --</option>
                       {rawMaterials.map(mat => (
                         <option key={mat.id} value={mat.id}>
                           {mat.name} (المتاح: {mat.available_quantity || 0})
@@ -330,8 +324,8 @@ const BomSetupManager = ({ onBack }) => {
                     </select>
                   </div>
 
-                  <div style={{ flex: '1' }}>
-                    <label style={{ ...styles.label, fontSize: '12px', marginBottom: '4px' }}>الوزن / المقدار المطلوب بالخلطة</label>
+                  <div>
+                    <label style={{ ...styles.label, fontSize: '12px' }}>الوزن / المقدار المطلوب</label>
                     <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
                       <input 
                         type="number" 
@@ -339,7 +333,7 @@ const BomSetupManager = ({ onBack }) => {
                         placeholder="مثال: 0.500" 
                         value={ing.required_quantity} 
                         onChange={(e) => handleIngredientChange(index, 'required_quantity', e.target.value)} 
-                        style={{ ...styles.input, backgroundColor: '#fff', padding: '10px 12px', paddingLeft: '40px' }} 
+                        style={{ ...styles.input, backgroundColor: '#fff', paddingLeft: '40px' }} 
                       />
                       <span style={{ position: 'absolute', left: '12px', fontSize: '12px', fontWeight: 'bold', color: '#94a3b8' }}>كجم</span>
                     </div>
@@ -352,17 +346,17 @@ const BomSetupManager = ({ onBack }) => {
         )}
       </div>
 
-      {/* زر الحفظ النهائي المعتمد */}
+      {/* زر الحفظ النهائي */}
       <button 
         type="button" 
         onClick={handleSaveBom} 
         disabled={isSaving}
-        style={{ width: '100%', padding: '16px', backgroundColor: isSaving ? '#94a3b8' : '#10b981', color: '#fff', border: 'none', borderRadius: '20px', fontWeight: 'bold', fontSize: '15px', marginTop: '12px', cursor: isSaving ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', boxShadow: '0 10px 20px rgba(16, 185, 129, 0.15)', transition: 'all 0.2s', marginBottom: '40px' }}
+        style={{ width: '100%', padding: '16px', backgroundColor: isSaving ? '#94a3b8' : '#10b981', color: '#fff', border: 'none', borderRadius: '20px', fontWeight: 'bold', fontSize: '15px', marginTop: '12px', cursor: isSaving ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', marginBottom: '40px' }}
       >
         {isSaving ? (
           <>
             <Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} />
-            جاري اعتماد الطبخة في الاسكيما...
+            جاري الاعتماد...
           </>
         ) : (
           <>
