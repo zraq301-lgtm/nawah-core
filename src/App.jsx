@@ -28,6 +28,9 @@ import Customers from './components/Customers';
 import StaffManagement from './components/StaffManagement';
 import Settings from './components/Settings';
 
+// 🚀 استيراد مكون واجهة مدخلات الطبخة الجديد
+import RecipeManager from './components/RecipeManager';
+
 // ⚙️ إنشاء كائن الـ Query Client المركزي وإعداده لبيئة الهاتف
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -194,7 +197,7 @@ const AppContent = () => {
         triggerAndroidNotification('تحديث النظام', '📥 تم مزامنة بيانات المخازن والعملاء السحابية بنجاح.');
       }
     } catch (apiErr) {
-      console.warn("⚠️ لم يتم تحديث السيرفر السحابي، جاري استخدام القاعدة المحلية الاحتياطية:", apiErr.message);
+      console.warn("⚠️ لم يتم تحديث السيرفر السحابي, جاري استخدام القاعدة المحلية الاحتياطية:", apiErr.message);
     }
   };
 
@@ -397,6 +400,15 @@ const AppContent = () => {
             onRefresh={syncCloudData}
           />
         );
+      case 'recipes': // 🚀 واجهة الطبخات المستحدثة داخل السيستم
+        return (
+          <RecipeManager 
+            onBack={backToDashboard}
+            tenantSchema={tenantSchema}
+            stock={stock}
+            onRefresh={syncCloudData}
+          />
+        );
       case 'purchases':
         return (
           <PurchasesManager 
@@ -405,7 +417,7 @@ const AppContent = () => {
             setStock={setStock} 
             tenantSchema={tenantSchema} 
             stats={stats}
-            suppliers={suppliers} // تمرير الموردين المزامنين سحابياً لشاشة المشتريات
+            suppliers={suppliers} 
             onPurchaseComplete={syncCloudData} 
           />
         );
@@ -417,7 +429,7 @@ const AppContent = () => {
             setStock={setStock} 
             stats={stats} 
             tenantSchema={tenantSchema} 
-            customers={customers} // تمرير العملاء المزامنين سحابياً لشاشة فواتير المبيعات
+            customers={customers} 
             onSalesComplete={syncCloudData}
           />
         );
@@ -478,8 +490,8 @@ const AppContent = () => {
             onBack={backToDashboard} 
             tenantSchema={tenantSchema} 
             stats={stats}
-            customers={customers} // جلب وعرض بيانات العملاء من قاعدة البيانات السحابية الحية
-            onAddCustomer={handleSaveCustomer} // تمرير دالة الحفظ السحابي وتحديث الـ State
+            customers={customers} 
+            onAddCustomer={handleSaveCustomer} 
           />
         );
       case 'staff':
@@ -535,36 +547,13 @@ const AppContent = () => {
         </div>
       )}
 
-      <main style={{ padding: '16px', paddingBottom: '100px' }}>
+      {/* تم إزالة شريط التنقل السفلي بالكامل، وعرض الصفحات يتم عبر وحدة التحكم الخارجية */}
+      <main style={{ padding: '16px' }}>
         {renderPage()}
       </main>
-
-      {/* شريط التحكم السفلي الثابت الزجاجي */}
-      <nav style={{
-        position: 'fixed', bottom: '15px', left: '15px', right: '15px',
-        height: '70px', backgroundColor: 'rgba(255, 255, 255, 0.95)',
-        backdropFilter: 'blur(15px)', borderRadius: '25px',
-        display: 'flex', justifyContent: 'space-around', alignItems: 'center',
-        boxShadow: '0 8px 32px rgba(0,0,0,0.06)', border: '1px solid rgba(255,255,255,0.4)',
-        zIndex: 1000
-      }}>
-        <NavButton active={activePage === 'dashboard'} icon="📊" label="الرئيسية" onClick={() => setActivePage('dashboard')} />
-        <NavButton active={activePage === 'production'} icon="🏭" label="الإنتاج" onClick={() => setActivePage('production')} />
-        <NavButton active={activePage === 'inventory'} icon="📦" label="المخزن" onClick={() => setActivePage('inventory')} />
-      </nav>
     </div>
   );
 };
-
-const NavButton = ({ active, icon, label, onClick, color }) => (
-  <button onClick={onClick} style={{
-    border: 'none', background: 'none', display: 'flex', flexDirection: 'column',
-    alignItems: 'center', color: color || (active ? '#6366f1' : '#94a3b8'), transition: '0.3s', cursor: 'pointer'
-  }}>
-    <span style={{ fontSize: '20px', marginBottom: '2px' }}>{icon}</span>
-    <span style={{ fontSize: '11px', fontWeight: active ? 'bold' : '500' }}>{label}</span>
-  </button>
-);
 
 // 📦 المكون المصدّر الرئيسي المحمي بمزود تيار البيانات المركزي لـ React Query
 const App = () => {
