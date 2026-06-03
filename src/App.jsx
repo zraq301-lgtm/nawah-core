@@ -63,9 +63,7 @@ const AppContent = () => {
     save: async (key, data) => {
       try {
         const stringifiedData = JSON.stringify(data);
-        // التخزين الأصلي والأكثر أماناً داخل SharedPreferences للأندرويد
         await Preferences.set({ key, value: stringifiedData });
-        // نسخة احتياطية إضافية للويب والمتصفح لحماية مزدوجة
         localStorage.setItem(key, stringifiedData); 
       } catch (error) {
         console.error(`خطأ أثناء الحفظ المحلي للمفتاح ${key}:`, error);
@@ -73,11 +71,8 @@ const AppContent = () => {
     },
     load: async (key) => {
       try {
-        // المحاولة الأولى: جلب البيانات المستقرة من Preferences
         const { value } = await Preferences.get({ key });
         if (value) return JSON.parse(value);
-        
-        // المحاولة الثانية (Fallback): إذا لم توجد، نجلبها من localStorage
         const localValue = localStorage.getItem(key);
         return localValue ? JSON.parse(localValue) : null;
       } catch (e) {
@@ -102,7 +97,6 @@ const AppContent = () => {
     requestNotificationPermission();
   }, []);
 
-  // دالة إرسال إشعار أندرويد سريع ونظيف
   const triggerAndroidNotification = async (title, body) => {
     try {
       await LocalNotifications.schedule({
@@ -111,7 +105,7 @@ const AppContent = () => {
             title: title,
             body: body,
             id: Math.floor(Math.random() * 100000),
-            schedule: { at: new Date(Date.now() + 1000) }, // يظهر بعد ثانية واحدة فوراً
+            schedule: { at: new Date(Date.now() + 1000) },
             sound: 'default',
             actionTypeId: '',
             extra: null
@@ -145,27 +139,21 @@ const AppContent = () => {
         existing.balance += balance;
         if (price > 0) existing.price = price; 
       } else {
-        groupNode(grouped, name, item, balance, price);
+        grouped.set(name, {
+          ...item,
+          id: item.id || item._id || Date.now() + Math.random(),
+          name: name,
+          balance: balance,
+          price: price
+        });
       }
     });
     return Array.from(grouped.values());
   };
 
-  // دالة مساعدة معزولة لمنع تكرار الهياكل البرمجية
-  const groupNode = (map, name, item, balance, price) => {
-    map.set(name, {
-      ...item,
-      id: item.id || item._id || Date.now() + Math.random(),
-      name: name,
-      balance: balance,
-      price: price
-    });
-  };
-
-  // --- دالة المزامنة السحابية الذكية المحدثة (سحب المخزن والجهات وتحديث الواجهة) ---
+  // --- دالة المزامنة السحابية الذكية المحدثة ---
   const syncCloudData = async () => {
     try {
-      // 🚀 1. سحب البيانات السحابية الحية لجدول الـ stock باستخدام الرابط المخصص الموحد
       const cloudResult = await apiService.getData('stock');
       if (cloudResult && cloudResult.success && cloudResult.data) {
         const cloudStock = cloudResult.data.map(item => ({
@@ -179,12 +167,9 @@ const AppContent = () => {
         await storage.save('stock', finalizedStock);
       }
 
-      // 📥 2. جلب بيانات جدول الجهات (contacts) الموحد وتوزيعها على العملاء والموردين
       const contactsResult = await apiService.getData('contacts');
       if (contactsResult && contactsResult.success && contactsResult.data) {
         const allContacts = contactsResult.data;
-        
-        // فرز العملاء والموردين بناءً على حقل النوع (type) المحاسبي القياسي لقواعد ERP
         const fetchedCustomers = allContacts.filter(c => c.type === 'customer' || c.type === 'general');
         const fetchedSuppliers = allContacts.filter(s => s.type === 'supplier');
         
@@ -201,15 +186,12 @@ const AppContent = () => {
     }
   };
 
-  // --- دالة حفظ وإضافة العملاء سحابياً وتحديث الحالة الفورية لقائمة الاختيار ---
   const handleSaveCustomer = async (newCustomer) => {
-    // تحديث الواجهة محلياً فوراً لمنع بطء التجاوب على الهاتف
     const updatedCustomers = [...customers, newCustomer];
     setCustomers(updatedCustomers);
     await storage.save('customers', updatedCustomers);
 
     try {
-      // ترحيل العميل لجدول الحسابات الموحد بقاعدة البيانات السحابية بنوع customer
       await apiService.createData('contacts', {
         id: newCustomer.id,
         name: newCustomer.name,
@@ -218,27 +200,19 @@ const AppContent = () => {
         type: 'customer'
       });
       triggerAndroidNotification('إدارة العملاء', `👥 تم حفظ العميل [${newCustomer.name}] ومزامنته بالسيرفر.`);
-      await syncCloudData(); // إعادة جلب للتأكد التام من مطابقة الواجهات
+      await syncCloudData();
     } catch (err) {
       console.error("تم حفظ العميل محلياً وتأخر الرفع للسيرفر:", err.message);
     }
   };
 
-  // --- مزامنة وإدارة البيانات السريعة وسحب رقم الشركة ---
   const fetchLocalData = useCallback(async () => {
     setIsSyncing(true);
-    
-    // 🛡️ فحص ذكي مسبق لحالة تسجيل الدخول للحفاظ على بقاء المستخدم دائماً داخلياً
     const savedAuth = await storage.load('is_logged_in');
-    if (savedAuth === true) {
-      setIsLoggedIn(true);
-    }
+    if (savedAuth === true) setIsLoggedIn(true);
 
-    // 🔥 جلب رقم السكيما المخزن محلياً باسم 'tenant_schema' وتحديث الـ State
     const savedSchema = await storage.load('tenant_schema');
-    if (savedSchema) {
-      setTenantSchema(savedSchema);
-    }
+    if (savedSchema) setTenantSchema(savedSchema);
 
     const localStock = await storage.load('stock');
     const localHistory = await storage.load('productionHistory');
@@ -250,7 +224,6 @@ const AppContent = () => {
     if (localCustomers) setCustomers(localCustomers);
     if (localSuppliers) setSuppliers(localSuppliers);
 
-    // 🚀 بدء المزامنة الخلفية للسيرفر لضمان جلب آخر تعديلات
     if (savedSchema && savedAuth === true) {
       await syncCloudData();
     }
@@ -259,18 +232,24 @@ const AppContent = () => {
     setIsSyncing(false);
   }, []);
 
-  // --- دالة مصاحبة لاستكمال وحفظ تسجيل الدخول لربطها بصفحة التسجيل لديك ---
-  const handleLoginSuccess = async (schema) => {
-    setTenantSchema(schema);
-    setIsLoggedIn(true);
-    await storage.save('is_logged_in', true);
-    await storage.save('tenant_schema', schema);
-    await syncCloudData();
-    triggerAndroidNotification('أهلاً بك', '🔐 تم تسجيل الدخول واستعادة السكيما المعزولة.');
-    setActivePage('dashboard');
-  };
+  useEffect(() => {
+    fetchLocalData();
+  }, [fetchLocalData]);
 
-  // --- دالة حفظ الإنتاج وتحديث المخزن التلقائي ---
+  const stats = useMemo(() => {
+    const totalProduction = productionHistory.reduce((s, p) => s + (parseFloat(p.totalActualCost) || 0), 0);
+    const totalIncome = productionHistory.length * 1500; 
+    const totalExpenses = totalProduction + 500;
+    return {
+      totalIncome,
+      totalExpenses,
+      netProfit: totalIncome - totalExpenses,
+      stockValue: stock.reduce((s, i) => s + ((parseFloat(i.balance) || 0) * (parseFloat(i.price) || 0)), 0),
+      totalItems: stock.length,
+      lowStock: stock.filter(i => (parseFloat(i.balance) || 0) < 5).length
+    };
+  }, [stock, productionHistory]);
+
   const handleSaveProduction = async (newProduction) => {
     const updatedHistory = [newProduction, ...productionHistory];
     setProductionHistory(updatedHistory);
@@ -278,7 +257,6 @@ const AppContent = () => {
     await storage.save('stock', stock);
 
     try {
-      // 🚀 ترحيل سجل الإنتاج آلياً لسيرفر الفيرسل المركزي بجدول المزامنة الموحد
       await apiService.createData('production_history', {
         production_id: newProduction.id,
         total_actual_cost: parseFloat(newProduction.totalActualCost || 0),
@@ -292,7 +270,6 @@ const AppContent = () => {
     Swal.fire('تم الحفظ', 'تم تسجيل الإنتاج وتحديث المخزن بنجاح', 'success');
   };
 
-  // --- دالة حفظ مدخلات المخزن الجديدة وترحيلها للقاعدة السحابية ---
   const handleSaveInventory = async (newItem) => {
     const formattedItem = {
       ...newItem,
@@ -300,29 +277,23 @@ const AppContent = () => {
       balance: parseFloat(newItem.balance || newItem.quantity || 0),
       price: parseFloat(newItem.price || 0)
     };
-
     const updatedStock = groupItems([...stock, formattedItem]);
     setStock(updatedStock);
     await storage.save('stock', updatedStock);
-
     try {
-      // 🚀 ترحيل وحفظ الصنف الجديد مباشرة في جدول stock بقاعدة بيانات نيون السحابية
       await apiService.createData('stock', {
         item_name: formattedItem.name,
         quantity: formattedItem.balance,
         price: formattedItem.price,
         barcode: newItem.barcode || ''
       });
-      
       triggerAndroidNotification('المخازن', `📦 تم إضافة وتحديث الصنف [${formattedItem.name}] سحابياً.`);
-      // إعادة تحديث الواجهة للتأكد من المزامنة
       await syncCloudData();
     } catch (err) {
       console.error("تم الحفظ محلياً وتأخر ترحيل السيرفر:", err.message);
     }
   };
 
-  // --- دالة الحذف اللحظية الموحدة ---
   const handleDelete = async (id, type) => {
     if (type === 'stock') {
       const updatedStock = stock.filter(item => (item.id !== id && item._id !== id));
@@ -337,30 +308,14 @@ const AppContent = () => {
     Swal.fire('تم الحذف', 'تم إزالة العنصر من السجلات المحلية الموحدة', 'success');
   };
 
-  useEffect(() => {
-    fetchLocalData();
-  }, [fetchLocalData]);
-
-  // --- الحسابات المالية الموحدة للداشبورد والتقارير ---
-  const stats = useMemo(() => {
-    const totalProduction = productionHistory.reduce((s, p) => s + (parseFloat(p.totalActualCost) || 0), 0);
-    const totalIncome = productionHistory.length * 1500; 
-    const totalExpenses = totalProduction + 500;
-    return {
-      totalIncome: totalIncome,
-      totalExpenses: totalExpenses,
-      netProfit: totalIncome - totalExpenses,
-      stockValue: stock.reduce((s, i) => s + ((parseFloat(i.balance) || 0) * (parseFloat(i.price) || 0)), 0),
-      totalItems: stock.length,
-      lowStock: stock.filter(i => (parseFloat(i.balance) || 0) < 5).length
-    };
-  }, [stock, productionHistory]);
-
-  // --- محرك التوجيه الموحد لإرسال واستلام البيانات من وإلى جميع الأقسام بنسبة 100% ---
+  // --- محرك التوجيه الموحد المحمي بـ تصفية النصوص وفك الارتباك ---
   const renderPage = () => {
     const backToDashboard = () => setActivePage('dashboard');
+    
+    // 🧠 تأمين قراءة النص الممرر بتحويله لحروف صغيرة ممسوحة الفراغات لضمان المطابقة 100%
+    const pageKey = (activePage || '').trim().toLowerCase();
 
-    switch (activePage) {
+    switch (pageKey) {
       case 'dashboard':
         return (
           <Dashboard 
@@ -400,8 +355,12 @@ const AppContent = () => {
             onRefresh={syncCloudData}
           />
         );
-      case 'recipes': // 🚀 توجيه واستدعاء الملف الصحيح لإدارة تركيبات الأكلات وفواتير المواد
+
+      // 🚀 جدار حماية الأيقونة الفولاذي: يقوم بالتقاط اسم الملف الصريح والمباشر وفتحه فوراً
+      case 'bomsetupmanager':
+      case 'recipes': 
       case 'bom':
+      case 'product_boms':
         return (
           <BomSetupManager 
             onBack={backToDashboard}
@@ -410,6 +369,7 @@ const AppContent = () => {
             onRefresh={syncCloudData}
           />
         );
+
       case 'purchases':
         return (
           <PurchasesManager 
@@ -526,12 +486,12 @@ const AppContent = () => {
             stats={stats}
             onDeleteItem={handleDelete}
             tenantSchema={tenantSchema}
+            onRefresh={syncCloudData}
           />
         );
     }
   };
 
-  // 🛡️ جدار حماية لمنع وميض الشاشة وضمان جلب حالة الجلسة المحفوظة أولاً قبل البناء
   if (checkingAuth) {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', fontFamily: 'Tajawal, sans-serif', backgroundColor: '#f4f7fe', color: '#6366f1', fontWeight: 'bold' }}>
@@ -547,8 +507,6 @@ const AppContent = () => {
           🔄 جاري مزامنة المحرك...
         </div>
       )}
-
-      {/* شريط الأزرار ملغي تماماً والتحكم والصفحات تتبع وحدة التحكم الخارجية */}
       <main style={{ padding: '16px' }}>
         {renderPage()}
       </main>
@@ -556,7 +514,6 @@ const AppContent = () => {
   );
 };
 
-// 📦 المكون المصدّر الرئيسي المحمي بمزود تيار البيانات المركزي لـ React Query
 const App = () => {
   return (
     <QueryClientProvider client={queryClient}>
