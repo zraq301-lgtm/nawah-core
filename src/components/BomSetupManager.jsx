@@ -1,3 +1,4 @@
+// components/BomSetupManager.jsx
 import React, { useState } from 'react';
 import { Save, Plus, Trash2, ArrowLeft, Layers, Scale, Loader2, Sparkles, AlertTriangle } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -20,7 +21,6 @@ const BomSetupManager = ({ onBack }) => {
     : (stockResponse?.data || stockResponse?.items || []);
 
   // 🛑 حالات الواجهة المدخلة (State)
-  // تم تحويل selectedProductId إلى اسم نصي حر يكتبه الطباخ بنفسه لحرية تامة في الإدخال
   const [finalProductName, setFinalProductName] = useState('');
   const [bomName, setBomName] = useState('');
   const [baseQuantity, setBaseQuantity] = useState('1.000');
@@ -49,10 +49,11 @@ const BomSetupManager = ({ onBack }) => {
     setIngredients(updated);
   };
 
-  // 🚀 إرسال وحفظ المعادلة والطبخة كاملة لقاعدة البيانات
+  // 🚀 إرسال وحفظ المعادلة والطبخة كاملة لقاعدة البيانات في خبطة واحدة
   const handleSaveBom = async () => {
-    // التحقق المرن من المدخلات الأساسية بعد تحويل الخانة لحقل كتابة
+    // التحقق المرن من المدخلات الأساسية
     if (!finalProductName.trim() || !bomName.trim() || !baseQuantity || parseFloat(baseQuantity) <= 0) {
+      <p style={{ display: 'none' }} />
       Swal.fire({
         title: 'تنبيــه',
         text: 'يرجى كتابة اسم المنتج النهائي، تحديد اسم الطبخة، وتحديد الكمية المعيارية بشكل صحيح.',
@@ -74,7 +75,8 @@ const BomSetupManager = ({ onBack }) => {
       return;
     }
 
-    // التحقق من صحة إدخال المواد الخام المضافة بالأسفل
+    // التحقق من صحة مصفوفة المكونات وتجهيزها
+    const formattedIngredients = [];
     for (let i = 0; i < ingredients.length; i++) {
       if (!ingredients[i].raw_material_id || !ingredients[i].required_quantity || parseFloat(ingredients[i].required_quantity) <= 0) {
         Swal.fire({
@@ -86,38 +88,29 @@ const BomSetupManager = ({ onBack }) => {
         });
         return;
       }
+      
+      formattedIngredients.push({
+        raw_material_id: parseInt(ingredients[i].raw_material_id),
+        required_quantity: parseFloat(ingredients[i].required_quantity)
+      });
     }
 
     setIsSaving(true);
     try {
-      // أ) حفظ الرأس في جدول الـ product_boms (يتم تمرير اسم المنتج المكتوب ليتم التعامل معه بالـ backend بشكل سليم)
-      const bomHeaderRes = await apiService.createData('product_boms', {
+      // 📦 إرسال الرأس والتفاصيل معاً في كائن واحد (Single Request) متوافق مع الـ API المحدث
+      await apiService.createData('product_boms', {
         product_name: finalProductName.trim(),
         bom_name: bomName.trim(),
-        base_quantity: parseFloat(baseQuantity)
+        base_quantity: parseFloat(baseQuantity),
+        ingredients: formattedIngredients // المصفوفة المدمجة ليقوم الـ API بترحيلها بـ Transaction واحدة
       });
 
-      const newBomId = bomHeaderRes?.id || bomHeaderRes?.data?.id;
-
-      if (!newBomId) {
-        throw new Error("لم يتم إرجاع معرف السجل الرئيسي للطبخة من السيرفر.");
-      }
-
-      // ب) حفظ تفاصيل المكونات في جدول الـ bom_ingredients
-      for (const ing of ingredients) {
-        await apiService.createData('bom_ingredients', {
-          bom_id: newBomId,
-          raw_material_id: parseInt(ing.raw_material_id),
-          required_quantity: parseFloat(ing.required_quantity)
-        });
-      }
-
-      // ج) تنظيف الواجهة وتحديث كاش النظام
+      // 🔄 تنظيف كاش النظام ليعيد قراءة المعادلات المحدثة فوراً
       await queryClient.invalidateQueries({ queryKey: ['boms'] });
       
       Swal.fire({
         title: 'تم الاعتماد بنجاح',
-        text: '[زاد الخير]: تم تسجيل وربط معيار الطبخة الجديدة بنجاح في قاعدة البيانات!',
+        text: '[زاد الخير]: تم تسجيل الرأس وتفاصيل المكونات معاً بنجاح في قاعدة البيانات دون أي فقدان للبيانات!',
         icon: 'success',
         confirmButtonText: 'ممتاز',
         confirmButtonColor: '#10b981'
@@ -132,10 +125,10 @@ const BomSetupManager = ({ onBack }) => {
       if (onBack) onBack();
 
     } catch (error) {
-      console.error(error);
+      console.error("🚨 خطأ أثناء الحفظ التكاملي من الفرونت إند:", error);
       Swal.fire({
-        title: 'فشل الحفظ',
-        text: `🚨 فشل حفظ الطبخة: ${error.message || "يرجى التحقق من اتصال السيرفر أو إعدادات قاعدة البيانات"}`,
+        title: 'فشل الحفظ التكاملي',
+        text: `🚨 فشل ترحيل المكونات: ${error.message || "يرجى التحقق من اتصال السيرفر بـ Neon"}`,
         icon: 'error',
         confirmButtonText: 'حسناً',
         confirmButtonColor: '#ef4444'
@@ -188,7 +181,7 @@ const BomSetupManager = ({ onBack }) => {
             <Layers size={22} />
           </div>
           <div>
-            <h2 style={{ margin: 0, fontSize: '18px', fontWeight: '800', color: '#0f172a' }}>تهيئة وتركيب الطبخات (BOM)</h2>
+            <h2 style={{ margin: 0, fontSize: '18px', fontWeight: '800', color: '#0f172a' }}># تهيئة وتركيب الطبخات (BOM)</h2>
             <p style={{ margin: '4px 0 0 0', fontSize: '12px', color: '#64748b', fontWeight: '500' }}>زاد الخير • ربط المنتجات بالمعايير الحرة</p>
           </div>
         </div>
@@ -213,7 +206,6 @@ const BomSetupManager = ({ onBack }) => {
           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
             <div>
               <label style={styles.label}>المنتج النهائي الصادر</label>
-              {/* تم تحويل الحقل هنا إلى حقل نصي حر Input مطاطي ومرن تماماً مثل الحقل الأسفل منه بناءً على طلبك */}
               <input 
                 type="text"
                 placeholder="اكتب اسم المنتج النهائي (مثال: معمول عجوة فاخر)" 
@@ -299,7 +291,6 @@ const BomSetupManager = ({ onBack }) => {
                       style={{ ...styles.input, backgroundColor: '#fff' }}
                     >
                       <option value="">-- اختر مادة من كامل محتويات المخزن --</option>
-                      {/* هنا يتم عرض كل الأصناف المتواجدة بالمخزن بلا قيود أو فلاتر ضيقة */}
                       {allItems.map(mat => (
                         <option key={mat.id} value={mat.id}>
                           {mat.name} (المتاح حالياً: {mat.available_quantity || 0})
