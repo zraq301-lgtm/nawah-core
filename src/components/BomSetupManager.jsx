@@ -7,38 +7,21 @@ import Swal from 'sweetalert2';
 const BomSetupManager = ({ onBack }) => {
   const queryClient = useQueryClient();
 
-  // 📥 1. جلب كافة الأصناف من المخزن لتصنيفها
+  // 📥 1. جلب كافة الأصناف من المخزن دون استثناء
   const { data: stockResponse, isLoading } = useQuery({
     queryKey: ['stock'],
     queryFn: () => apiService.getData('items'),
     staleTime: 5 * 60 * 1000, 
   });
 
-  const itemsList = Array.isArray(stockResponse)
+  // تحويل البيانات القادمة إلى مصفوفة صالحة للاستخدام مباشرة
+  const allItems = Array.isArray(stockResponse)
     ? stockResponse
     : (stockResponse?.data || stockResponse?.items || []);
 
-  // 🔄 تصفية الأصناف: المنتجات النهائية
-  const finalProducts = itemsList.filter(item => {
-    if (!item) return false;
-    const type = (item.item_type || '').toString().toLowerCase().trim();
-    return type !== 'raw_material' && type !== 'خامة' && type !== 'مواد خام';
-  });
-
-  // 🔄 تصفية الأصناف: المواد الخام
-  const rawMaterials = itemsList.filter(item => {
-    if (!item) return false;
-    const type = (item.item_type || '').toString().toLowerCase().trim();
-    const name = (item.name || '').toString().toLowerCase();
-    return (
-      type === 'raw_material' || type === 'خامة' || type === 'مواد خام' ||
-      name.includes('دقيق') || name.includes('سمن') || name.includes('سكر') || 
-      name.includes('بلح') || name.includes('زبد') || name.includes('زيت')
-    );
-  });
-
   // 🛑 حالات الواجهة المدخلة (State)
-  const [selectedProductId, setSelectedProductId] = useState('');
+  // تم تحويل selectedProductId إلى اسم نصي حر يكتبه الطباخ بنفسه لحرية تامة في الإدخال
+  const [finalProductName, setFinalProductName] = useState('');
   const [bomName, setBomName] = useState('');
   const [baseQuantity, setBaseQuantity] = useState('1.000');
   const [ingredients, setIngredients] = useState([]);
@@ -68,13 +51,11 @@ const BomSetupManager = ({ onBack }) => {
 
   // 🚀 إرسال وحفظ المعادلة والطبخة كاملة لقاعدة البيانات
   const handleSaveBom = async () => {
-    // طباعة القيم في الـ Console لمعاينتها أثناء العمل على الموبايل ومعرفة أي حقل يتسبب في المشكلة
-    console.log("حالة الحقول عند الحفظ:", { selectedProductId, bomName, baseQuantity, ingredients });
-
-    if (!selectedProductId || selectedProductId === "" || !bomName.trim() || !baseQuantity || parseFloat(baseQuantity) <= 0) {
+    // التحقق المرن من المدخلات الأساسية بعد تحويل الخانة لحقل كتابة
+    if (!finalProductName.trim() || !bomName.trim() || !baseQuantity || parseFloat(baseQuantity) <= 0) {
       Swal.fire({
         title: 'تنبيــه',
-        text: 'يرجى اختيار المنتج النهائي، كتابة اسم الطبخة، وتحديد الكمية المعيارية بشكل صحيح.',
+        text: 'يرجى كتابة اسم المنتج النهائي، تحديد اسم الطبخة، وتحديد الكمية المعيارية بشكل صحيح.',
         icon: 'warning',
         confirmButtonText: 'مفهوم',
         confirmButtonColor: '#6366f1'
@@ -85,7 +66,7 @@ const BomSetupManager = ({ onBack }) => {
     if (ingredients.length === 0) {
       Swal.fire({
         title: 'تركيبة فارغة',
-        text: 'لا يمكن حفظ طبخة فارغة! يرجى إضافة مادة خام واحدة على الأقل.',
+        text: 'لا يمكن حفظ طبخة فارغة! يرجى إضافة مادة خام واحدة على الأقل من المواد المتاحة.',
         icon: 'warning',
         confirmButtonText: 'إضافة خامات',
         confirmButtonColor: '#6366f1'
@@ -93,11 +74,12 @@ const BomSetupManager = ({ onBack }) => {
       return;
     }
 
+    // التحقق من صحة إدخال المواد الخام المضافة بالأسفل
     for (let i = 0; i < ingredients.length; i++) {
       if (!ingredients[i].raw_material_id || !ingredients[i].required_quantity || parseFloat(ingredients[i].required_quantity) <= 0) {
         Swal.fire({
           title: 'بيانات ناقصة',
-          text: `يرجى إكمال بيانات الخامة وتحديد كمية صحيحة في السطر رقم (${i + 1}).`,
+          text: `يرجى اختيار المادة الخام وتحديد كمية صحيحة في السطر رقم (${i + 1}).`,
           icon: 'error',
           confirmButtonText: 'تصحيح الخطأ',
           confirmButtonColor: '#ef4444'
@@ -108,9 +90,9 @@ const BomSetupManager = ({ onBack }) => {
 
     setIsSaving(true);
     try {
-      // أ) حفظ الرأس في جدول الـ product_boms
+      // أ) حفظ الرأس في جدول الـ product_boms (يتم تمرير اسم المنتج المكتوب ليتم التعامل معه بالـ backend بشكل سليم)
       const bomHeaderRes = await apiService.createData('product_boms', {
-        product_id: parseInt(selectedProductId),
+        product_name: finalProductName.trim(),
         bom_name: bomName.trim(),
         base_quantity: parseFloat(baseQuantity)
       });
@@ -141,8 +123,8 @@ const BomSetupManager = ({ onBack }) => {
         confirmButtonColor: '#10b981'
       });
       
-      // تصفير الخانات
-      setSelectedProductId('');
+      // تصفير الخانات بالكامل بعد النجاح
+      setFinalProductName('');
       setBomName('');
       setBaseQuantity('1.000');
       setIngredients([]);
@@ -153,7 +135,7 @@ const BomSetupManager = ({ onBack }) => {
       console.error(error);
       Swal.fire({
         title: 'فشل الحفظ',
-        text: `🚨 فشل حفظ الطبخة: ${error.message || "يرجى التحقق من اتصال السيرفر"}`,
+        text: `🚨 فشل حفظ الطبخة: ${error.message || "يرجى التحقق من اتصال السيرفر أو إعدادات قاعدة البيانات"}`,
         icon: 'error',
         confirmButtonText: 'حسناً',
         confirmButtonColor: '#ef4444'
@@ -191,7 +173,8 @@ const BomSetupManager = ({ onBack }) => {
       color: '#1e293b',
       backgroundColor: '#f8fafc',
       boxSizing: 'border-box',
-      fontFamily: 'Tajawal, sans-serif'
+      fontFamily: 'Tajawal, sans-serif',
+      transition: 'all 0.2s ease'
     }
   };
 
@@ -206,7 +189,7 @@ const BomSetupManager = ({ onBack }) => {
           </div>
           <div>
             <h2 style={{ margin: 0, fontSize: '18px', fontWeight: '800', color: '#0f172a' }}>تهيئة وتركيب الطبخات (BOM)</h2>
-            <p style={{ margin: '4px 0 0 0', fontSize: '12px', color: '#64748b', fontWeight: '500' }}>زاد الخير • ربط المنتجات بالمعايير</p>
+            <p style={{ margin: '4px 0 0 0', fontSize: '12px', color: '#64748b', fontWeight: '500' }}>زاد الخير • ربط المنتجات بالمعايير الحرة</p>
           </div>
         </div>
         <button onClick={onBack} style={{ background: '#f1f5f9', border: 'none', cursor: 'pointer', color: '#64748b', display: 'flex', alignItems: 'center', gap: '6px', padding: '10px 14px', borderRadius: '14px', fontSize: '13px', fontWeight: '700' }}>
@@ -224,28 +207,27 @@ const BomSetupManager = ({ onBack }) => {
         {isLoading ? (
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px', padding: '30px 0', color: '#4f46e5', fontWeight: '700' }}>
             <Loader2 size={24} style={{ animation: 'spin 1s linear infinite' }} />
-            <span>جاري جلب قائمة الأصناف...</span>
+            <span>جاري جلب بيانات المستودع...</span>
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
             <div>
               <label style={styles.label}>المنتج النهائي الصادر</label>
-              {/* قمنا بإزالة الإخفاء الافتراضي والـ appearance لضمان عمل الـ select على متصفحات الهواتف بشكل طبيعي وقراءة القيمة */}
-              <select 
-                value={selectedProductId} 
-                onChange={(e) => setSelectedProductId(e.target.value)} 
-                style={{ ...styles.input, backgroundColor: '#fff', cursor: 'pointer' }}
-              >
-                <option value="">-- حدد صنف تام (مثل: معمول عجوة) --</option>
-                {finalProducts.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
+              {/* تم تحويل الحقل هنا إلى حقل نصي حر Input مطاطي ومرن تماماً مثل الحقل الأسفل منه بناءً على طلبك */}
+              <input 
+                type="text"
+                placeholder="اكتب اسم المنتج النهائي (مثال: معمول عجوة فاخر)" 
+                value={finalProductName} 
+                onChange={(e) => setFinalProductName(e.target.value)} 
+                style={styles.input}
+              />
             </div>
 
             <div>
               <label style={styles.label}>اسم المعيار / الطبخة المميز</label>
               <input 
                 type="text" 
-                placeholder="مثال: طبخة المعمول الفاخر بالسمن البلدي" 
+                placeholder="مثال: خلطة الطباخ السرية بالسمن البلدي" 
                 value={bomName} 
                 onChange={(e) => setBomName(e.target.value)} 
                 style={styles.input} 
@@ -275,7 +257,7 @@ const BomSetupManager = ({ onBack }) => {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px', borderBottom: '1px solid #f1f5f9', paddingBottom: '12px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Layers size={18} color="#f59e0b" />
-            <h3 style={{ margin: 0, fontSize: '14px', color: '#1e293b', fontWeight: '800' }}>2. الخامات الداخلة ونسب المقادير</h3>
+            <h3 style={{ margin: 0, fontSize: '14px', color: '#1e293b', fontWeight: '800' }}>2. الخامات الداخلة ونسب المقادير (يعرض كامل المخزن)</h3>
           </div>
           <button 
             type="button" 
@@ -290,6 +272,7 @@ const BomSetupManager = ({ onBack }) => {
           <div style={{ textAlign: 'center', padding: '40px 16px', color: '#94a3b8', border: '2px dashed #e2e8f0', borderRadius: '20px', backgroundColor: '#f8fafc', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
             <AlertTriangle size={24} color="#94a3b8" />
             <span style={{ fontSize: '13px', fontWeight: '700' }}>التركيبة فارغة حالياً</span>
+            <span style={{ fontSize: '11px' }}>اضغط على زر إضافة مادة خام لعرض قائمة المستودع الكاملة.</span>
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
@@ -315,17 +298,18 @@ const BomSetupManager = ({ onBack }) => {
                       onChange={(e) => handleIngredientChange(index, 'raw_material_id', e.target.value)} 
                       style={{ ...styles.input, backgroundColor: '#fff' }}
                     >
-                      <option value="">-- اختر مادة خام --</option>
-                      {rawMaterials.map(mat => (
+                      <option value="">-- اختر مادة من كامل محتويات المخزن --</option>
+                      {/* هنا يتم عرض كل الأصناف المتواجدة بالمخزن بلا قيود أو فلاتر ضيقة */}
+                      {allItems.map(mat => (
                         <option key={mat.id} value={mat.id}>
-                          {mat.name} (المتاح: {mat.available_quantity || 0})
+                          {mat.name} (المتاح حالياً: {mat.available_quantity || 0})
                         </option>
                       ))}
                     </select>
                   </div>
 
                   <div>
-                    <label style={{ ...styles.label, fontSize: '12px' }}>الوزن / المقدار المطلوب</label>
+                    <label style={{ ...styles.label, fontSize: '12px' }}>الوزن / المقدار المطلوب بالخلطة</label>
                     <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
                       <input 
                         type="number" 
@@ -346,7 +330,7 @@ const BomSetupManager = ({ onBack }) => {
         )}
       </div>
 
-      {/* زر الحفظ النهائي */}
+      {/* زر الحفظ النهائي المعتمد */}
       <button 
         type="button" 
         onClick={handleSaveBom} 
@@ -356,7 +340,7 @@ const BomSetupManager = ({ onBack }) => {
         {isSaving ? (
           <>
             <Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} />
-            جاري الاعتماد...
+            جاري الاعتماد في الاسكيما...
           </>
         ) : (
           <>
