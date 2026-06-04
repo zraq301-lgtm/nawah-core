@@ -19,15 +19,16 @@ export default async function handler(req, res) {
   
   const schemaName = String(schema).trim().toLowerCase().replace(/[^a-z0-9_]/g, ''); 
 
-  // 🔌 فتح اتصال فوري وسريع بمشروع نيون
+  // 🔌 فتح اتصال فوري بمشروع نيون (Neon)
   const sql = postgres(process.env.DATABASE_URL, { ssl: 'require', onnotice: () => {} });
 
   try {
-    // 1️⃣ 👤 مسار حفظ جهات التعامل (الموردين / العملاء)
+    // ==========================================
+    // 1️⃣ 👤 مسار حفظ جهات التعامل (Contacts)
+    // ==========================================
     if (targetTable === 'contacts') {
-      // 🧠 [الإصلاح الحاسم]: عدم إجبار الـ id التلقائي على أخذ قيمة الـ Timestamp الفلكية، بل دع الـ SERIAL يولد id طبيعي، واحفظ المعرف في contact_id
       const rawContactId = data.contact_id || data.id || Date.now();
-      const dbContactId = String(rawContactId); // تمرير كـ String لتفادي كسر الـ Integer في السيرفر
+      const dbContactId = String(rawContactId);
       
       const safeName = data.name || 'جهة تعامل عامة';
       const safePhone = data.phone || '';
@@ -35,7 +36,6 @@ export default async function handler(req, res) {
       const safeType = data.type || 'supplier';
       const safeBalance = Number(data.current_balance || data.debt || 0);
 
-      // نستخدم استعلام مرن: إذا كان الـ contact_id موجوداً مسبقاً نقوم بالتحديث، وإلا نقوم بالإدخال
       const [existingContact] = await sql`
         SELECT id FROM ${sql(schemaName)}.contacts WHERE contact_id = ${dbContactId}
       `;
@@ -63,32 +63,98 @@ export default async function handler(req, res) {
       return res.status(200).json({ success: true, data: savedContact });
     }
 
-    // 2️⃣ 📦 مسار حفظ أو تحديث المخزون (جدول items الأصيل بالسكيما)
+    // ==========================================
+    // 2️⃣ 📦 مسار حفظ أو تحديث المخزون (Items)
+    // ==========================================
     if (targetTable === 'stock' || targetTable === 'items') {
       const rawItemId = data.id || data.item_id || Date.now();
       const itemIdStr = String(rawItemId);
+      const itemBarcode = data.barcode || `BAR-${itemIdStr}`;
       
       const [savedItem] = await sql`
-        INSERT INTO ${sql(schemaName)}.items (name, item_type, barcode, available_quantity, sale_price)
+        INSERT INTO ${sql(schemaName)}.items (name, item_type, barcode, available_quantity, cost_price, sale_price)
         VALUES (
           ${data.name}, 
           ${data.item_type || 'product'}, 
-          ${data.barcode || `BAR-${itemIdStr}`}, 
+          ${itemBarcode}, 
           ${Number(data.available_quantity || data.balance || 0)}, 
+          ${Number(data.cost_price || 0)}, 
           ${Number(data.sale_price || data.price || 0)}
         )
         ON CONFLICT (barcode) 
         DO UPDATE SET 
           name = EXCLUDED.name, 
           available_quantity = EXCLUDED.available_quantity, 
+          cost_price = EXCLUDED.cost_price,
           sale_price = EXCLUDED.sale_price
         RETURNING *
       `;
       return res.status(200).json({ success: true, data: savedItem });
     }
 
-    // 3️⃣ 📜 مسار معالجة الفواتير وحركات النقدية الكبيرة (Invoice Transaction)
-    // نضمن عدم استخدام تحويل عددي للأرقام الكبيرة لكي لا تفقد دقتها أو تسبب خطأ Range
+    // ==========================================
+    // 3️⃣ 🍳 مسار تهيئة الطبخات والمعايير (Product BOMs) -> [الإضافة الحافرة الجديدة لزاد الخير]
+    // ==========================================
+    if (targetTable === 'product_boms') {
+      let savedBomHeader = null;
+
+      // استخدام Transaction لضمان حفظ الرأس والمكونات معاً أو التراجع في حال حدوث خطأ
+      await sql.begin(async (tx) => {
+        const pName = String(data.product_name || '').trim();
+        const bName = String(data.bom_name || '').trim();
+        const bQty = Number(data.base_quantity || 1.000);
+
+        // أ) التحقق من وجود الصنف التام كـ Item مستقل بالمخازن لتأمين مفتاح REFERENCES product_id
+        let itemInternalId = null;
+        const [existingItem] = await tx`
+          SELECT id FROM ${tx(schemaName)}.items WHERE name = ${pName} LIMIT 1
+        `;
+
+        if (existingItem) {
+          itemInternalId = existingItem.id;
+        } else {
+          // إذا لم يجد الطباخ الصنف مسجلاً مسبقاً، يقوم الـ API بإنشائه آلياً في المخزن كمنتج تام جاهز
+          const randomBarcode = `BAR-PROD-${Date.now()}`;
+          const [newItem] = await tx`
+            INSERT INTO ${tx(schemaName)}.items (name, item_type, barcode, available_quantity)
+            VALUES (${pName}, 'product', ${randomBarcode}, 0)
+            RETURNING id
+          `;
+          itemInternalId = newItem.id;
+        }
+
+        // ب) إدراج سجل الطبخة الرئيسي (product_boms)
+        const [bomHeader] = await tx`
+          INSERT INTO ${tx(schemaName)}.product_boms (product_id, bom_name, base_quantity)
+          VALUES (${itemInternalId}, ${bName}, ${bQty})
+          RETURNING *
+        `;
+
+        savedBomHeader = bomHeader;
+      });
+
+      return res.status(200).json({ success: true, data: savedBomHeader });
+    }
+
+    // ==========================================
+    // 4️⃣ 🌿 مسار حفظ مكونات ونسب الطبخات (BOM Ingredients) -> [ربط تفاصيل الخامات]
+    // ==========================================
+    if (targetTable === 'bom_ingredients') {
+      const [savedIngredient] = await sql`
+        INSERT INTO ${sql(schemaName)}.bom_ingredients (bom_id, raw_material_id, required_quantity)
+        VALUES (
+          ${Number(data.bom_id)},
+          ${Number(data.raw_material_id)},
+          ${Number(data.required_quantity)}
+        )
+        RETURNING *
+      `;
+      return res.status(200).json({ success: true, data: savedIngredient });
+    }
+
+    // ==========================================
+    // 5️⃣ 📜 مسار معالجة الفواتير وحركات النقدية (Invoices)
+    // ==========================================
     const targetContactIdStr = data.contact_id ? String(data.contact_id) : '1';
     const targetAccountId = data.account_id ? Number(data.account_id) : 1;
     const grossAmount = Number(data.gross_amount || 0);
@@ -103,7 +169,7 @@ export default async function handler(req, res) {
     let savedInvoice = null;
 
     await sql.begin(async (tx) => {
-      // البحث عن الـ id الداخلي للـ contact باستخدام الـ contact_id النصي الضخم
+      // البحث عن الـ id الداخلي للـ contact
       let contactInternalId = 1;
       const [fetchedContact] = await tx`
         SELECT id FROM ${tx(schemaName)}.contacts WHERE contact_id = ${targetContactIdStr}
@@ -111,14 +177,12 @@ export default async function handler(req, res) {
 
       if (fetchedContact) {
         contactInternalId = fetchedContact.id;
-        // تحديث البيانات الأساسية احتياطياً
         await tx`
           UPDATE ${tx(schemaName)}.contacts 
           SET name = ${data.contact_name || 'جهة تعامل عامة'}, type = ${contactType}
           WHERE id = ${contactInternalId}
         `;
       } else {
-        // إذا كان المورد غير موجود ننشئه فوراً بالـ contact_id الضخم ليعطيه السيرفر id تلقائي صحيح
         const [newC] = await tx`
           INSERT INTO ${tx(schemaName)}.contacts (contact_id, name, type)
           VALUES (${targetContactIdStr}, ${data.contact_name || 'جهة تعامل عامة'}, ${contactType})
@@ -134,7 +198,7 @@ export default async function handler(req, res) {
         ON CONFLICT (id) DO NOTHING
       `;
 
-      // إدخال رأس الفاتورة بالربط مع الـ id الداخلي الصحيح لجدول الـ contacts
+      // إدخال رأس الفاتورة
       const [invoice] = await tx`
         INSERT INTO ${tx(schemaName)}.invoices (
           invoice_number, invoice_type, contact_id, gross_amount, 
@@ -155,7 +219,6 @@ export default async function handler(req, res) {
         for (const item of itemsArray) {
           const currentBarcode = item.barcode || `BAR-${item.item_id || item.id || Date.now()}`;
 
-          // البحث أو الإنشاء الفوري بناء على الباركود الفريد للأصناف
           let itemInternalId;
           const [fetchedItem] = await tx`
             SELECT id FROM ${tx(schemaName)}.items WHERE barcode = ${currentBarcode}
