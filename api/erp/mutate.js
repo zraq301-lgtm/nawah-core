@@ -93,34 +93,41 @@ export default async function handler(req, res) {
     }
 
     // ==========================================
-    // 3️⃣ 🍳 مسار تهيئة الطبخات والمعايير (Product BOMs) -> [الإضافة الحافرة الجديدة لزاد الخير]
+    // 3️⃣ 🍳 مسار تهيئة الطبخات والمعايير والمكونات (Product BOMs + Ingredients)
     // ==========================================
     if (targetTable === 'product_boms') {
       let savedBomHeader = null;
 
-      // استخدام Transaction لضمان حفظ الرأس والمكونات معاً أو التراجع في حال حدوث خطأ
+      // استخدام Transaction لضمان حفظ الرأس والمكونات معاً أو التراجع كلياً في حال وجود خطأ
       await sql.begin(async (tx) => {
         const pName = String(data.product_name || '').trim();
         const bName = String(data.bom_name || '').trim();
         const bQty = Number(data.base_quantity || 1.000);
 
-        // أ) التحقق من وجود الصنف التام كـ Item مستقل بالمخازن لتأمين مفتاح REFERENCES product_id
-        let itemInternalId = null;
-        const [existingItem] = await tx`
-          SELECT id FROM ${tx(schemaName)}.items WHERE name = ${pName} LIMIT 1
-        `;
+        // أ) التحقق من أو إيجاد المعرف الرقمي للمنتج النهائي
+        let itemInternalId = data.product_id ? Number(data.product_id) : null;
 
-        if (existingItem) {
-          itemInternalId = existingItem.id;
-        } else {
-          // إذا لم يجد الطباخ الصنف مسجلاً مسبقاً، يقوم الـ API بإنشائه آلياً في المخزن كمنتج تام جاهز
-          const randomBarcode = `BAR-PROD-${Date.now()}`;
-          const [newItem] = await tx`
-            INSERT INTO ${tx(schemaName)}.items (name, item_type, barcode, available_quantity)
-            VALUES (${pName}, 'product', ${randomBarcode}, 0)
-            RETURNING id
+        if (!itemInternalId && pName) {
+          const [existingItem] = await tx`
+            SELECT id FROM ${tx(schemaName)}.items WHERE name = ${pName} LIMIT 1
           `;
-          itemInternalId = newItem.id;
+
+          if (existingItem) {
+            itemInternalId = existingItem.id;
+          } else {
+            // إن لم يكن مسجلاً، نقوم بإنشائه آلياً لتأمين الـ Foreign Key
+            const randomBarcode = `BAR-PROD-${Date.now()}`;
+            const [newItem] = await tx`
+              INSERT INTO ${tx(schemaName)}.items (name, item_type, barcode, available_quantity)
+              VALUES (${pName}, 'product', ${randomBarcode}, 0)
+              RETURNING id
+            `;
+            itemInternalId = newItem.id;
+          }
+        }
+
+        if (!itemInternalId) {
+          throw new Error("لم يتم تحديد المعرف الخاص بالمنتج النهائي بالشكل الصحيح.");
         }
 
         // ب) إدراج سجل الطبخة الرئيسي (product_boms)
@@ -130,20 +137,39 @@ export default async function handler(req, res) {
           RETURNING *
         `;
 
+        if (!bomHeader) throw new Error("فشل تسجيل السجل الرئيسي للطبخة.");
         savedBomHeader = bomHeader;
+
+        // 🌿 ج) قراءة مصفوفة المكونات المرفقة بالطلب وإدراجها فوراً
+        const ingredientsArray = data.ingredients || [];
+        if (ingredientsArray.length > 0) {
+          for (const ing of ingredientsArray) {
+            const rawMatId = Number(ing.raw_material_id);
+            const reqQty = Number(ing.required_quantity);
+
+            if (!rawMatId || !reqQty) {
+              throw new Error("بيانات أحد المكونات/الخامات غير مكتملة.");
+            }
+
+            await tx`
+              INSERT INTO ${tx(schemaName)}.bom_ingredients (bom_id, raw_material_id, required_quantity)
+              VALUES (${bomHeader.id}, ${rawMatId}, ${reqQty})
+            `;
+          }
+        }
       });
 
       return res.status(200).json({ success: true, data: savedBomHeader });
     }
 
     // ==========================================
-    // 4️⃣ 🌿 مسار حفظ مكونات ونسب الطبخات (BOM Ingredients) -> [ربط تفاصيل الخامات]
+    // 4️⃣ 🌿 مسار حفظ المكونات المنفردة (إحتياطي)
     // ==========================================
     if (targetTable === 'bom_ingredients') {
       const [savedIngredient] = await sql`
         INSERT INTO ${sql(schemaName)}.bom_ingredients (bom_id, raw_material_id, required_quantity)
         VALUES (
-          ${Number(data.bom_id)},
+          ${制造_id => Number(data.bom_id)},
           ${Number(data.raw_material_id)},
           ${Number(data.required_quantity)}
         )
@@ -169,7 +195,6 @@ export default async function handler(req, res) {
     let savedInvoice = null;
 
     await sql.begin(async (tx) => {
-      // البحث عن الـ id الداخلي للـ contact
       let contactInternalId = 1;
       const [fetchedContact] = await tx`
         SELECT id FROM ${tx(schemaName)}.contacts WHERE contact_id = ${targetContactIdStr}
@@ -191,14 +216,12 @@ export default async function handler(req, res) {
         if (newC) contactInternalId = newC.id;
       }
 
-      // تأمين وجود الحساب المالي
       await tx`
         INSERT INTO ${tx(schemaName)}.accounts (id, account_name, account_type)
         VALUES (${targetAccountId}, 'الخزينة الرئيسية', 'cash')
         ON CONFLICT (id) DO NOTHING
       `;
 
-      // إدخال رأس الفاتورة
       const [invoice] = await tx`
         INSERT INTO ${tx(schemaName)}.invoices (
           invoice_number, invoice_type, contact_id, gross_amount, 
@@ -213,7 +236,6 @@ export default async function handler(req, res) {
       if (!invoice) throw new Error("فشل إدخال رأس الفاتورة في نيون");
       savedInvoice = invoice;
 
-      // ترحيل مصفوفة الأصناف وتأمين وجودها في جدول items
       const itemsArray = data.items || data.invoice_items || [];
       if (itemsArray.length > 0) {
         for (const item of itemsArray) {
@@ -242,7 +264,6 @@ export default async function handler(req, res) {
         }
       }
 
-      // ترحيل السند المالي للحركة النقدية
       if (paidAmount > 0) {
         const cashFlowType = data.invoice_type === 'purchase' ? 'out' : 'in';
         await tx`
